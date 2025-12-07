@@ -158,12 +158,29 @@ void WarhogMode::processScanResults() {
     Serial.printf("[WARHOG] Found %d networks (GPS: %s)\n", 
                  n, hasGPS ? "yes" : "no");
     
+    // Get actual wifi_ap_record_t array from ESP-IDF for accurate features
+    uint16_t apCount = n;
+    wifi_ap_record_t* apRecords = new wifi_ap_record_t[apCount];
+    if (!apRecords) {
+        Serial.println("[WARHOG] Failed to allocate AP records");
+        WiFi.scanDelete();
+        return;
+    }
+    
+    esp_err_t err = esp_wifi_scan_get_ap_records(&apCount, apRecords);
+    if (err != ESP_OK) {
+        Serial.printf("[WARHOG] Failed to get AP records: %d\n", err);
+        delete[] apRecords;
+        WiFi.scanDelete();
+        return;
+    }
+    
     size_t previousCount = entries.size();
     
-    for (int i = 0; i < n; i++) {
-        uint8_t* bssid = WiFi.BSSID(i);
+    for (uint16_t i = 0; i < apCount; i++) {
+        wifi_ap_record_t& ap = apRecords[i];
         
-        int idx = findEntry(bssid);
+        int idx = findEntry(ap.bssid);
         
         if (idx < 0) {
             // Check memory limit before adding
@@ -180,27 +197,20 @@ void WarhogMode::processScanResults() {
                 savedCount = 0;
             }
             
-            // New network
+            // New network - use actual ESP-IDF data
             WardrivingEntry entry = {0};
-            memcpy(entry.bssid, bssid, 6);
-            strncpy(entry.ssid, WiFi.SSID(i).c_str(), 32);
-            entry.rssi = WiFi.RSSI(i);
-            entry.channel = WiFi.channel(i);
-            entry.authmode = WiFi.encryptionType(i);
+            memcpy(entry.bssid, ap.bssid, 6);
+            strncpy(entry.ssid, (const char*)ap.ssid, 32);
+            entry.ssid[32] = '\0';
+            entry.rssi = ap.rssi;
+            entry.channel = ap.primary;
+            entry.authmode = ap.authmode;
             entry.timestamp = millis();
             entry.saved = false;
             entry.label = 0;  // Unknown - user can label later
             
-            // Extract ML features from scan result
-            wifi_ap_record_t apRecord;
-            apRecord.rssi = entry.rssi;
-            apRecord.primary = entry.channel;
-            apRecord.second = WIFI_SECOND_CHAN_NONE;
-            apRecord.authmode = entry.authmode;
-            memcpy(apRecord.bssid, bssid, 6);
-            memcpy(apRecord.ssid, entry.ssid, 33);
-            apRecord.phy_11n = true;  // Assume 11n capable
-            entry.features = FeatureExtractor::extractFromScan(&apRecord);
+            // Extract ML features from ACTUAL scan result (not reconstructed)
+            entry.features = FeatureExtractor::extractFromScan(&ap);
             
             if (hasGPS) {
                 entry.latitude = gps.latitude;
@@ -230,20 +240,24 @@ void WarhogMode::processScanResults() {
         } else {
             // Update existing - maybe update GPS if we have better fix
             if (hasGPS && (entries[idx].latitude == 0 || 
-                          WiFi.RSSI(i) > entries[idx].rssi)) {
+                          ap.rssi > entries[idx].rssi)) {
                 entries[idx].latitude = gps.latitude;
                 entries[idx].longitude = gps.longitude;
                 entries[idx].altitude = gps.altitude;
-                entries[idx].rssi = WiFi.RSSI(i);
+                entries[idx].rssi = ap.rssi;
+                // Also update features with new RSSI
+                entries[idx].features = FeatureExtractor::extractFromScan(&ap);
             }
         }
     }
+    
+    delete[] apRecords;
     
     newCount = entries.size() - previousCount;
     
     if (newCount > 0) {
         // Use WARHOG-specific phrases for found networks
-        Mood::onWarhogFound(nullptr, WiFi.channel());
+        Mood::onWarhogFound(nullptr, 0);
         
         // Auto-save new entries with GPS fix to CSV
         if (hasGPS && Config::isSDAvailable()) {
