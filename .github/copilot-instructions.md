@@ -257,13 +257,25 @@ The classifier scores networks on:
 - WPA3/PMF for deauth resistance
 
 ### Training Data Collection
-In WARHOG mode, features are extracted for each network:
+In WARHOG mode (Enhanced), ML training data is automatically exported:
+- **Periodic export**: Every 60 seconds to `/ml_training.csv` (full accumulated data)
+- **On stop**: Final export when G0 is pressed
+- **Crash protection**: Periodic dumps ensure at most 1 minute of data loss
+
 ```cpp
-WarhogMode::exportMLTraining("/sd/training.csv");
+// Manual export (if needed)
+WarhogMode::exportMLTraining("/ml_training.csv");
 ```
 Outputs all 32 features + BSSID, SSID, label, GPS coords.
 
 ## WARHOG Mode Details
+
+### Background Scanning
+WiFi scanning runs in a FreeRTOS background task to keep UI responsive:
+- `scanTask()` runs `WiFi.scanNetworks()` on Core 0
+- Main loop continues handling display/keyboard
+- Scan results processed when task completes (~7 seconds per scan)
+- Scan cancelled cleanly on stop (vTaskDelete + WiFi.scanDelete)
 
 ### Memory Management
 - Max 2000 entries (~240KB) to prevent memory exhaustion
@@ -279,7 +291,9 @@ Outputs all 32 features + BSSID, SSID, label, GPS coords.
 ### Data Safety
 - SSIDs are properly escaped (CSV quotes, XML entities)
 - Control characters stripped from SSID fields
-- Incremental file appending (no data loss on crash)
+- Periodic ML export every 60s (crash protection)
+- SD writes are single-threaded (main loop only, never from scan task)
+- Scan cancelled cleanly on stop to prevent orphaned tasks
 
 ### Edge Impulse Integration
 1. Train model at studio.edgeimpulse.com
