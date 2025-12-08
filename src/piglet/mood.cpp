@@ -319,6 +319,7 @@ void Mood::updateAvatarState() {
 void Mood::draw(M5Canvas& canvas) {
     // Calculate bubble size based on message length
     String phrase = currentPhrase;
+    phrase.toUpperCase();  // UPPERCASE for visibility
     int maxCharsPerLine = 14;  // Slightly less chars for padding
     int numLines = 1;
     if (phrase.length() > maxCharsPerLine) numLines = 2;
