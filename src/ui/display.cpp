@@ -228,13 +228,20 @@ void Display::drawBottomBar() {
         // LOG_VIEWER: show scroll hint
         stats = "[;/.] scroll  [Bksp] exit";
     } else if (mode == PorkchopMode::OINK_MODE) {
-        // OINK: show Networks, Handshakes, Deauths, and current Channel
+        // OINK: show Networks, Handshakes, Deauths, Channel, and last pwned
         uint16_t netCount = OinkMode::getNetworkCount();
         uint16_t hsCount = OinkMode::getCompleteHandshakeCount();
         uint32_t deauthCount = OinkMode::getDeauthCount();
         uint8_t channel = OinkMode::getChannel();
-        char buf[48];
-        snprintf(buf, sizeof(buf), "N:%d HS:%d D:%lu CH:%d", netCount, hsCount, deauthCount, channel);
+        String pwned = OinkMode::getLastPwned();
+        char buf[64];
+        if (pwned.length() > 0) {
+            // Truncate SSID if too long (7 chars + ".." to fit with 2-digit channel)
+            if (pwned.length() > 7) pwned = pwned.substring(0, 7) + "..";
+            snprintf(buf, sizeof(buf), "N:%d HS:%d D:%lu CH:%d PWN:%s", netCount, hsCount, deauthCount, channel, pwned.c_str());
+        } else {
+            snprintf(buf, sizeof(buf), "N:%d HS:%d D:%lu CH:%d", netCount, hsCount, deauthCount, channel);
+        }
         stats = String(buf);
     } else {
         // Default: Networks, Handshakes, Deauths

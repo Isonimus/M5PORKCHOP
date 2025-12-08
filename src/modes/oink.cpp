@@ -72,6 +72,9 @@ static const uint32_t WAIT_TIME = 2000;         // 2 sec between targets
 static bool checkedForPendingHandshake = false;
 static bool hasPendingHandshake = false;
 
+// Last pwned network SSID for display
+static String lastPwnedSSID = "";
+
 void OinkMode::init() {
     // Reset busy flag in case of abnormal stop
     oinkBusy = false;
@@ -98,6 +101,7 @@ void OinkMode::init() {
     stateStartTime = 0;
     attackStartTime = 0;
     lastDeauthTime = 0;
+    lastPwnedSSID = "";
     lastMoodUpdate = 0;
     checkedForPendingHandshake = false;
     hasPendingHandshake = false;
@@ -911,6 +915,7 @@ void OinkMode::processEAPOL(const uint8_t* payload, uint16_t len,
     // Only trigger mood + beep when handshake becomes complete (not for each frame)
     if (hs.isComplete() && !hs.saved) {
         Mood::onHandshakeCaptured(hs.ssid);
+        lastPwnedSSID = String(hs.ssid);
         autoSaveCheck();
     }
 }
@@ -1343,6 +1348,10 @@ bool OinkMode::hasHandshakeFor(const uint8_t* bssid) {
         }
     }
     return false;
+}
+
+String OinkMode::getLastPwned() {
+    return lastPwnedSSID;
 }
 
 void OinkMode::sortNetworksByPriority() {

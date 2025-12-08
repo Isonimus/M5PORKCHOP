@@ -18,7 +18,9 @@
     3 - Capabilities
         3.1 - OINK Mode
         3.2 - WARHOG Mode
-        3.3 - Machine Learning
+        3.3 - File Transfer Mode
+        3.4 - Machine Learning
+        3.5 - Enhanced ML Mode
     4 - Hardware
     5 - Building & Flashing
     6 - Controls
@@ -94,12 +96,15 @@
 
     Need to grab those juicy PCAPs off your piglet? WiFi file transfer:
 
-        * Creates WiFi AP with configurable SSID/password
-        * Black & white web interface at porkchop.local or 192.168.4.1
+        * Connects to YOUR WiFi network (configure SSID/password in settings)
+        * Black & white web interface at porkchop.local or device IP
         * Browse SD card directories (/handshakes, /wardriving, etc.)
         * Download captured handshakes and wardriving data
         * Upload files back to the piglet
         * No cables, no fuss
+
+    Set your network creds in Settings before trying to connect or the
+    pig will stare at you blankly wondering what you expected.
 
 
 ----[ 3.4 - Machine Learning
@@ -250,6 +255,7 @@
         HS:3    = 3 handshakes in the bag
         D:127   = 127 clients yeeted (deauths sent)
         CH:6    = Snooping on channel 6 right now
+        PWN:xxx = Last network you pwned (shows after capture)
         1:23    = How long this pig been running
 
     The grass under piggy's feet tells you what's happening. When you
@@ -297,8 +303,8 @@
         +------------+-------------------------------+---------+
         | Setting    | Description                   | Default |
         +------------+-------------------------------+---------+
-        | WiFi SSID  | AP name for file transfer     | PORKCHOP|
-        | WiFi Pass  | Password for file transfer    | oink1234|
+        | WiFi SSID  | Network for file transfer     | (empty) |
+        | WiFi Pass  | Password for that network     | (empty) |
         | Sound      | Beeps when things happen      | ON      |
         | Brightness | Display brightness            | 80%     |
         | Dim After  | Screen dim timeout (0=never)  | 30s     |
@@ -341,18 +347,22 @@
 
 ----[ 8.2 - Labeling
 
-    Your training data starts with label=0 (unknown). Open the CSV
-    and manually label each network:
+    Raw data starts unlabeled. Use the prep script to auto-label based
+    on security characteristics:
 
-        0 = unknown (unlabeled, skip during training)
-        1 = normal (legitimate APs you know and trust)
-        2 = rogue_ap (suspicious, strong signal, weird timing)
-        3 = evil_twin (impersonating a real network)
-        4 = vulnerable (open/WEP/WPA1/WPS enabled)
+        $ python scripts/prepare_ml_data.py ml_training.csv
 
-    Pro tip: War drive your neighborhood, label everything normal.
-    Then set up sketchy APs in the lab and label those as rogue/evil.
-    The contrast teaches the model what's sus.
+    The script outputs ml_training_ei.csv with string labels:
+
+        normal        = Legit ISP routers, standard secure configs
+        rogue_ap      = Strong signal + suspicious characteristics
+        evil_twin     = Impersonating known network (manual label)
+        deauth_target = No WPA3/PMF (can be deauthed)
+        vulnerable    = Open/WEP/WPS enabled
+
+    The auto-labeler catches the obvious stuff. For real rogue/evil twin
+    samples, you gotta set up sketchy APs in the lab and label manually.
+    Upload your labeled CSV to Edge Impulse for training.
 
 ----[ 8.3 - Training on Edge Impulse
 
@@ -390,12 +400,14 @@
     |   +-- core/
     |   |   +-- porkchop.cpp/h    # State machine, mode management
     |   |   +-- config.cpp/h      # Configuration (SPIFFS persistence)
+    |   |   +-- sdlog.cpp/h       # SD card debug logging
     |   |
     |   +-- ui/
     |   |   +-- display.cpp/h     # Triple-canvas display system
     |   |   +-- menu.cpp/h        # Main menu with callbacks
     |   |   +-- settings_menu.cpp/h   # Interactive settings
     |   |   +-- captures_menu.cpp/h   # Browse captured handshakes
+    |   |   +-- log_viewer.cpp/h  # View SD card logs
     |   |
     |   +-- piglet/
     |   |   +-- avatar.cpp/h      # Derpy ASCII pig (flips L/R)
@@ -410,8 +422,18 @@
     |   |   +-- edge_impulse.h    # SDK scaffold
     |   |
     |   +-- modes/
-    |       +-- oink.cpp/h        # WiFi scanning, deauth, capture
-    |       +-- warhog.cpp/h      # GPS wardriving, exports
+    |   |   +-- oink.cpp/h        # WiFi scanning, deauth, capture
+    |   |   +-- warhog.cpp/h      # GPS wardriving, exports
+    |   |
+    |   +-- web/
+    |       +-- fileserver.cpp/h  # WiFi file transfer server
+    |
+    +-- scripts/
+    |   +-- prepare_ml_data.py    # Label & convert data for Edge Impulse
+    |   +-- pre_build.py          # Build info generator
+    |
+    +-- docs/
+    |   +-- EDGE_IMPULSE_TRAINING.txt  # Step-by-step ML training guide
     |
     +-- .github/
     |   +-- copilot-instructions.md   # AI assistant context

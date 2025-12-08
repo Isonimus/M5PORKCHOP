@@ -101,6 +101,7 @@ public:
     static uint32_t getPacketCount() { return packetCount; }
     static uint32_t getDeauthCount() { return deauthCount; }
     static uint16_t getNetworkCount() { return networks.size(); }
+    static String getLastPwned();
     
     // Network selection cursor
     static int getSelectionIndex() { return selectionIndex; }
