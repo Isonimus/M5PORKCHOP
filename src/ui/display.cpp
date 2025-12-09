@@ -265,7 +265,7 @@ void Display::drawBottomBar() {
         uint32_t samsung = PiggyBluesMode::getSamsungCount();
         uint32_t windows = PiggyBluesMode::getWindowsCount();
         char buf[48];
-        snprintf(buf, sizeof(buf), "TX:%lu A:%d G:%d S:%d W:%d", total, apple, android, samsung, windows);
+        snprintf(buf, sizeof(buf), "TX:%lu A:%lu G:%lu S:%lu W:%lu", total, apple, android, samsung, windows);
         stats = String(buf);
     } else {
         // Default: Networks, Handshakes, Deauths

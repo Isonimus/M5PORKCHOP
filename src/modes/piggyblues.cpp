@@ -229,6 +229,12 @@ void PiggyBluesMode::init() {
     cfgScanDuration = Config::ble().scanDuration;
     cfgRescanIntervalMs = (uint32_t)Config::ble().rescanInterval * 1000;
     
+    // Validate: advDuration must not exceed burstInterval (prevents perpetual lag)
+    if (cfgAdvDuration > cfgBurstInterval) {
+        cfgAdvDuration = cfgBurstInterval;
+        Serial.printf("[PIGGYBLUES] WARN: advDuration capped to %dms (was > burstInterval)\n", cfgAdvDuration);
+    }
+    
     burstInterval = cfgBurstInterval;
     targets.clear();
     activeCount = 0;
@@ -341,6 +347,7 @@ void PiggyBluesMode::start() {
     pAdvertising = NimBLEDevice::getAdvertising();
     if (!pAdvertising) {
         Serial.println("[PIGGYBLUES] Failed to get advertising handle");
+        WiFi.mode(WIFI_STA);  // Re-enable WiFi on failure
         return;
     }
     pAdvertising->setMinInterval(BLE_ADV_MIN_INTERVAL);  // 20ms
@@ -367,11 +374,13 @@ void PiggyBluesMode::stop() {
     
     // Stop scan first if running
     NimBLEScan* pScan = NimBLEDevice::getScan();
-    if (pScan && pScan->isScanning()) {
-        pScan->stop();
-        delay(BLE_OP_DELAY_MS);
+    if (pScan) {
+        if (pScan->isScanning()) {
+            pScan->stop();
+            delay(BLE_OP_DELAY_MS);
+        }
+        pScan->clearResults();
     }
-    pScan->clearResults();
     
     // Stop advertising
     if (pAdvertising && pAdvertising->isAdvertising()) {
@@ -394,7 +403,7 @@ void PiggyBluesMode::stop() {
     Avatar::setGrassMoving(false);
     Avatar::resetGrassPattern();
     
-    Serial.printf("[PIGGYBLUES] Stopped - TX:%lu A:%d G:%d S:%d W:%d\n",
+    Serial.printf("[PIGGYBLUES] Stopped - TX:%lu A:%lu G:%lu S:%lu W:%lu\n",
                   totalPackets, appleCount, androidCount, samsungCount, windowsCount);
 }
 
@@ -491,7 +500,7 @@ void PiggyBluesMode::scanForDevices() {
     
     pScan->clearResults();
     
-    Serial.printf("[PIGGYBLUES] Found %d devices, selecting targets...\n", targets.size());
+    Serial.printf("[PIGGYBLUES] Found %d devices, selecting targets...\n", (int)targets.size());
     
     selectTargets();
 }
@@ -517,7 +526,7 @@ void PiggyBluesMode::selectTargets() {
 }
 
 BLEVendor PiggyBluesMode::identifyVendor(const uint8_t* mfgData, size_t len) {
-    if (len < 2) return BLEVendor::UNKNOWN;
+    if (!mfgData || len < 2) return BLEVendor::UNKNOWN;
     
     // Company ID is first 2 bytes (little endian)
     uint16_t companyId = mfgData[0] | (mfgData[1] << 8);
