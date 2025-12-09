@@ -2,6 +2,7 @@
 
 #include "mood.h"
 #include "../core/config.h"
+#include "../core/xp.h"
 #include "../ui/display.h"
 
 // Static members
@@ -174,6 +175,14 @@ void Mood::onHandshakeCaptured(const char* apName) {
     happiness = min(happiness + 30, 100);
     lastActivityTime = millis();
     
+    // Award XP for handshake capture
+    XP::addXP(XPEvent::HANDSHAKE_CAPTURED);
+    
+    // Bonus XP for low battery clutch capture
+    if (M5.Power.getBatteryLevel() < 20) {
+        XP::addXP(XPEvent::LOW_BATTERY_CAPTURE);
+    }
+    
     // Show AP name in phrase if available
     if (apName && strlen(apName) > 0) {
         String ap = String(apName);
@@ -203,6 +212,14 @@ void Mood::onHandshakeCaptured(const char* apName) {
 void Mood::onNewNetwork(const char* apName, int8_t rssi, uint8_t channel) {
     happiness = min(happiness + 10, 100);
     lastActivityTime = millis();
+    
+    // Award XP for network discovery
+    if (apName && strlen(apName) > 0) {
+        XP::addXP(XPEvent::NETWORK_FOUND);
+    } else {
+        // Hidden network gets bonus XP
+        XP::addXP(XPEvent::NETWORK_HIDDEN);
+    }
     
     // Show AP name with info in funny phrases
     if (apName && strlen(apName) > 0) {
@@ -294,6 +311,13 @@ void Mood::onWiFiLost() {
 void Mood::onGPSFix() {
     happiness = min(happiness + 10, 100);
     lastActivityTime = millis();
+    
+    // Award XP for GPS lock (handled by session flag in XP to avoid duplicates)
+    const SessionStats& sess = XP::getSession();
+    if (!sess.gpsLockAwarded) {
+        XP::addXP(XPEvent::GPS_LOCK);
+    }
+    
     currentPhrase = "gps locked n loaded";
     lastPhraseChange = millis();
 }
@@ -482,6 +506,9 @@ void Mood::onDeauthSuccess(const uint8_t* clientMac) {
     lastActivityTime = millis();
     happiness = min(happiness + 15, 100);
     
+    // Award XP for successful deauth
+    XP::addXP(XPEvent::DEAUTH_SUCCESS);
+    
     // Format short MAC (last 2 bytes only for brevity)
     char macStr[8];
     snprintf(macStr, sizeof(macStr), "%02X%02X", clientMac[4], clientMac[5]);
@@ -518,6 +545,9 @@ void Mood::onWarhogFound(const char* apName, uint8_t channel) {
     lastActivityTime = millis();
     happiness = min(100, happiness + 5);
     
+    // Award XP for WARHOG network logged with GPS
+    XP::addXP(XPEvent::WARHOG_LOGGED);
+    
     int idx = random(0, sizeof(PHRASES_WARHOG_FOUND) / sizeof(PHRASES_WARHOG_FOUND[0]));
     currentPhrase = PHRASES_WARHOG_FOUND[idx];
     lastPhraseChange = millis();
@@ -526,6 +556,13 @@ void Mood::onWarhogFound(const char* apName, uint8_t channel) {
 void Mood::onPiggyBluesUpdate(const char* vendor, int8_t rssi, uint8_t targetCount, uint8_t totalFound) {
     lastActivityTime = millis();
     happiness = min(100, happiness + 2);
+    
+    // Award XP for BLE spam
+    if (vendor != nullptr && strcmp(vendor, "Apple") == 0) {
+        XP::addXP(XPEvent::BLE_APPLE);  // Bonus for Apple
+    } else {
+        XP::addXP(XPEvent::BLE_BURST);
+    }
     
     char buf[48];
     

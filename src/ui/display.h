@@ -40,6 +40,7 @@ public:
     static bool showConfirmBox(const String& title, const String& message);
     static void showProgress(const String& title, uint8_t percent);
     static void showToast(const String& message);  // Quick non-blocking message
+    static void showLevelUp(uint8_t oldLevel, uint8_t newLevel);  // RPG level up popup
     
     // Bottom bar overlay (for confirmation dialogs)
     static void setBottomOverlay(const String& message);  // Set custom bottom bar text

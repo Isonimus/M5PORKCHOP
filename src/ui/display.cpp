@@ -4,6 +4,7 @@
 #include <M5Cardputer.h>
 #include "../core/porkchop.h"
 #include "../core/config.h"
+#include "../core/xp.h"
 #include "../piglet/mood.h"
 #include "../piglet/avatar.h"
 #include "../modes/oink.h"
@@ -66,6 +67,7 @@ void Display::update() {
             // Draw piglet avatar and mood
             Avatar::draw(mainCanvas);
             Mood::draw(mainCanvas);
+            XP::drawBar(mainCanvas);  // XP bar below grass
             break;
             
         case PorkchopMode::OINK_MODE:
@@ -74,6 +76,7 @@ void Display::update() {
             // Draw piglet avatar and mood bubble (info embedded in bubble)
             Avatar::draw(mainCanvas);
             Mood::draw(mainCanvas);
+            XP::drawBar(mainCanvas);  // XP bar below grass
             break;
             
         case PorkchopMode::MENU:
@@ -440,6 +443,80 @@ void Display::showToast(const String& message) {
     mainCanvas.drawString(message, DISPLAY_W / 2, boxY + boxH / 2);
     
     pushAll();
+}
+
+void Display::showLevelUp(uint8_t oldLevel, uint8_t newLevel) {
+    // Level up popup - pink filled box with black text, auto-dismiss after 2.5s
+    // Level up phrases
+    static const char* LEVELUP_PHRASES[] = {
+        "snout grew stronger",
+        "new truffle unlocked",
+        "skill issue? not anymore",
+        "gg ez level up",
+        "evolution complete",
+        "power level rising",
+        "oink intensifies",
+        "XP printer go brrr",
+        "grinding them levels",
+        "swine on the rise"
+    };
+    static const uint8_t PHRASE_COUNT = 10;
+    
+    int boxW = 200;
+    int boxH = 70;
+    int boxX = (DISPLAY_W - boxW) / 2;
+    int boxY = (MAIN_H - boxH) / 2;
+    
+    mainCanvas.fillSprite(COLOR_BG);
+    
+    // Pink filled box
+    mainCanvas.fillRoundRect(boxX, boxY, boxW, boxH, 8, COLOR_FG);
+    
+    // Black text on pink background
+    mainCanvas.setTextColor(COLOR_BG, COLOR_FG);
+    mainCanvas.setTextDatum(top_center);
+    mainCanvas.setTextSize(1);
+    mainCanvas.setFont(&fonts::Font0);
+    
+    int centerX = DISPLAY_W / 2;
+    
+    // Header
+    mainCanvas.drawString("* LEVEL UP! *", centerX, boxY + 8);
+    
+    // Level change
+    char levelStr[24];
+    snprintf(levelStr, sizeof(levelStr), "LV %d -> LV %d", oldLevel, newLevel);
+    mainCanvas.drawString(levelStr, centerX, boxY + 22);
+    
+    // New title
+    const char* title = XP::getTitleForLevel(newLevel);
+    mainCanvas.drawString(title, centerX, boxY + 36);
+    
+    // Random phrase
+    int phraseIdx = random(0, PHRASE_COUNT);
+    mainCanvas.drawString(LEVELUP_PHRASES[phraseIdx], centerX, boxY + 52);
+    
+    pushAll();
+    
+    // Celebratory beep sequence
+    if (Config::personality().soundEnabled) {
+        M5.Speaker.tone(800, 100);
+        delay(120);
+        M5.Speaker.tone(1000, 100);
+        delay(120);
+        M5.Speaker.tone(1200, 150);
+    }
+    
+    // Auto-dismiss after 2.5 seconds or on any key press
+    uint32_t startTime = millis();
+    while ((millis() - startTime) < 2500) {
+        M5.update();
+        M5Cardputer.update();
+        if (M5Cardputer.Keyboard.isChange()) {
+            break;  // Any key dismisses
+        }
+        delay(50);
+    }
 }
 
 void Display::setBottomOverlay(const String& message) {

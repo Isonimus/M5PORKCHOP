@@ -14,6 +14,7 @@
 #include "../modes/piggyblues.h"
 #include "../web/fileserver.h"
 #include "config.h"
+#include "xp.h"
 
 Porkchop::Porkchop() 
     : currentMode(PorkchopMode::IDLE)
@@ -26,6 +27,14 @@ Porkchop::Porkchop()
 
 void Porkchop::init() {
     startTime = millis();
+    
+    // Initialize XP system
+    XP::init();
+    
+    // Register level up callback to show popup
+    XP::setLevelUpCallback([](uint8_t oldLevel, uint8_t newLevel) {
+        Display::showLevelUp(oldLevel, newLevel);
+    });
     
     // Register default event handlers
     registerCallback(PorkchopEvent::HANDSHAKE_CAPTURED, [this](PorkchopEvent, void*) {
@@ -78,6 +87,9 @@ void Porkchop::update() {
     processEvents();
     handleInput();
     updateMode();
+    
+    // Check for session time XP bonuses
+    XP::updateSessionTime();
 }
 
 void Porkchop::setMode(PorkchopMode mode) {
@@ -132,6 +144,7 @@ void Porkchop::setMode(PorkchopMode mode) {
         case PorkchopMode::IDLE:
             Avatar::setState(AvatarState::NEUTRAL);
             Mood::onIdle();
+            XP::save();  // Save XP when returning to idle
             break;
         case PorkchopMode::OINK_MODE:
             Avatar::setState(AvatarState::HUNTING);

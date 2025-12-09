@@ -6,6 +6,7 @@ M5Porkchop is a WiFi security research tool for the M5Cardputer (ESP32-S3 based)
 - **OINK Mode**: WiFi scanning, handshake capture, deauth attacks
 - **WARHOG Mode**: Wardriving with GPS logging
 - **PIGGYBLUES Mode**: BLE notification spam (AppleJuice, FastPair, Samsung, SwiftPair)
+- **RPG XP System**: Level up from SCRIPT PIGGY to LEGENDARY PORKCHOP (40 ranks)
 - Interactive ASCII piglet avatar with mood-based phrases
 - Settings menu with persistent configuration
 - SD card logging and log viewer
@@ -38,6 +39,7 @@ README and user-facing docs use oldschool Phrack hacker magazine style:
 - `src/core/config.cpp/h` - Configuration structs (GPSConfig, WiFiConfig, PersonalityConfig), load/save to SPIFFS
 - `src/core/sdlog.cpp/h` - SD card logging with tag-based log() function, date-stamped log files
 - `src/core/wsl_bypasser.cpp/h` - ESP32 WiFi frame injection for deauth/disassoc
+- `src/core/xp.cpp/h` - RPG leveling system with NVS persistence, achievements, XP events
 
 ### Modes
 - `src/modes/oink.cpp/h` - OinkMode: WiFi scanning, channel hopping, promiscuous mode, handshake capture
@@ -45,7 +47,7 @@ README and user-facing docs use oldschool Phrack hacker magazine style:
 - `src/modes/piggyblues.cpp/h` - PiggyBluesMode: BLE notification spam targeting Apple/Android/Samsung/Windows devices
 
 ### UI Layer
-- `src/ui/display.cpp/h` - Triple-buffered canvas system (topBar, mainCanvas, bottomBar), 240x135 display, showToast()
+- `src/ui/display.cpp/h` - Triple-buffered canvas system (topBar, mainCanvas, bottomBar), 240x135 display, showToast(), showLevelUp()
 - `src/ui/menu.cpp/h` - Main menu with callback system
 - `src/ui/settings_menu.cpp/h` - Interactive settings with TOGGLE, VALUE, ACTION, TEXT item types
 - `src/ui/captures_menu.cpp/h` - Captured handshakes viewer
@@ -76,6 +78,8 @@ README and user-facing docs use oldschool Phrack hacker magazine style:
 │ MAIN_CANVAS (107px)                    │
 │ - Avatar on left (ASCII pig)           │
 │ - Speech bubble on right               │
+│ - XP bar at y=91 (18px empty below     │
+│   grass art, no layout changes needed) │
 │                                        │
 ├────────────────────────────────────────┤
 │ BOTTOM_BAR (14px) - Stats: N:x HS:x D:x│
@@ -468,3 +472,90 @@ uint16_t channelHopInterval = 500;  // ms between channel hops
 uint16_t burstInterval = 200;       // ms between advertisement bursts (50-500)
 ```
 **Why**: Values are configurable at runtime via settings menu, not hardcoded constants.
+
+## XP System (RPG Leveling)
+
+### Overview
+Persistent experience point system with 40 rank titles (Phrack/swine themed). Data stored in NVS (Preferences library) - survives reboots and reflash. XP bar displays at y=91 in the existing 18px empty space below the grass art.
+
+### Storage
+- **Namespace**: `porkxp` (NVS)
+- **Keys**: `xp` (uint32), `lvl` (uint8), `hi_hs` (uint16), `hi_net` (uint16), `hi_km` (uint16), `ach` (uint16)
+- **Size**: ~40 bytes total in NVS
+
+### XP Events and Values
+```cpp
+NETWORK_FOUND      = 1     // Normal network discovered
+NETWORK_HIDDEN     = 3     // Hidden SSID found
+HANDSHAKE_CAPTURED = 50    // WPA handshake grabbed
+DEAUTH_SUCCESS     = 15    // Deauth frames sent
+WARHOG_LOGGED      = 2     // AP logged with GPS
+WARHOG_KM          = 25    // 1km walked while wardriving
+GPS_LOCK           = 5     // First GPS fix of session
+BLE_BURST          = 2     // BLE spam burst sent
+SESSION_30MIN      = 10    // 30 minutes active
+SESSION_1HR        = 25    // 1 hour active
+SESSION_2HR        = 50    // 2 hours active (dedication)
+```
+
+### Rank Titles (40 Levels)
+Exponential XP curve - quick early levels, months at high levels:
+```
+L1:  SCRIPT PIGGY           L21: OINK-SEC ENGINEER
+L2:  BACON BIT              L22: SNOUT SNIFFER PRO
+L3:  SQUEALING NOOB         L23: PORK BARREL HACKER
+L4:  PIGPEN CURIOUS         L24: TRUFFLE HUNTER
+L5:  SLOP BUCKET SURFER     L25: SWINE DEBUGGER
+L6:  TROUGH DIVER           L26: HAM SANDWICH ARTIST
+L7:  MUD DAUBER             L27: PORKCHOP OPERATOR
+L8:  SNOUT POKER            L28: MASTER SWINEHERD
+L9:  CURLY TAIL CODER       L29: OINK OVERLORD
+L10: PIGLET PROBER          L30: BARON VON BACON
+L11: OINKER OPERATIVE       L31: SQUEALER SUPREME
+L12: PORK PILOT             L32: GRANDMASTER GROINKER
+L13: SAUSAGE LINKER         L33: PORCINE PENETRATOR
+L14: HOG HANDLER            L34: LEGENDARY SNORTER
+L15: BOAR BORER             L35: MYTHIC MUDWALLOWER
+L16: SWINE SWINDLER         L36: APEX APORKALYPSE
+L17: ROOTER ELITE           L37: DIVINE SWINEHERD
+L18: SNORT SPECIALIST       L38: COSMIC PORKCHOP
+L19: HAMBONE HACKER         L39: ETERNAL OINKER
+L20: BRISTLE BREACHER       L40: LEGENDARY PORKCHOP
+```
+
+### Achievements (16 Bitflags)
+```cpp
+ACH_FIRST_BLOOD   = 0x0001  // First handshake
+ACH_PACKET_HOG    = 0x0002  // 100 handshakes lifetime
+ACH_WARDRIVER     = 0x0004  // 1000 networks logged
+ACH_ROAD_HOG      = 0x0008  // 10km wardriving
+ACH_GHOST_HUNTER  = 0x0010  // 50 hidden networks
+ACH_CHAOS_AGENT   = 0x0020  // 100 deauths
+ACH_SESSION_GRIND = 0x0040  // 2hr session
+ACH_BLE_SPAMMER   = 0x0080  // 500 BLE bursts
+```
+
+### Integration Points
+XP is awarded via `Mood::onXxx()` handlers:
+```cpp
+// In mood.cpp event handlers:
+void Mood::onHandshakeCaptured() {
+    XP::addXP(XPEvent::HANDSHAKE_CAPTURED);
+    // ... phrase selection ...
+}
+```
+
+Distance tracking in `warhog.cpp` uses Haversine formula:
+```cpp
+// Awards XP every 1km walked while wardriving
+if (sessionDistanceM >= 1000.0) {
+    XP::addXP(XPEvent::WARHOG_KM);
+    sessionDistanceM -= 1000.0;
+}
+```
+
+### Level Up Popup
+Blocking popup via `Display::showLevelUpPopup()`:
+- Shows new rank title and level number
+- Random phrase from `Mood::getRandomLevelUpPhrase()`
+- Waits for Enter or G0 button press

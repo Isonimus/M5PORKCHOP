@@ -3,6 +3,7 @@
 #include "warhog.h"
 #include "../core/config.h"
 #include "../core/sdlog.h"
+#include "../core/xp.h"
 #include "../ui/display.h"
 #include "../piglet/mood.h"
 #include "../piglet/avatar.h"
@@ -14,6 +15,7 @@
 #include <SD.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
+#include <math.h>
 
 // Maximum entries in RAM to prevent memory exhaustion
 // Each WardrivingEntry ~140 bytes, 500 entries = ~70KB (safe for ESP32-S3 with 320KB DRAM)
@@ -46,6 +48,25 @@ static File openFileWithRetry(const char* path, const char* mode) {
     }
     return f;  // Returns invalid File if all retries failed
 }
+
+// Haversine formula for GPS distance calculation
+static double haversineMeters(double lat1, double lon1, double lat2, double lon2) {
+    const double R = 6371000.0;  // Earth radius in meters
+    double dLat = (lat2 - lat1) * M_PI / 180.0;
+    double dLon = (lon2 - lon1) * M_PI / 180.0;
+    lat1 = lat1 * M_PI / 180.0;
+    lat2 = lat2 * M_PI / 180.0;
+    
+    double a = sin(dLat / 2) * sin(dLat / 2) +
+               cos(lat1) * cos(lat2) * sin(dLon / 2) * sin(dLon / 2);
+    double c = 2 * atan2(sqrt(a), sqrt(1 - a));
+    return R * c;
+}
+
+// Distance tracking state
+static double lastGPSLat = 0;
+static double lastGPSLon = 0;
+static uint32_t lastDistanceCheck = 0;
 
 // Static members
 bool WarhogMode::running = false;
@@ -121,6 +142,11 @@ void WarhogMode::start() {
     currentFilename = "";
     beaconFeatures.clear();
     beaconCount = 0;
+    
+    // Reset distance tracking for XP
+    lastGPSLat = 0;
+    lastGPSLon = 0;
+    lastDistanceCheck = 0;
     
     // Reload scan interval from config
     scanInterval = Config::gps().updateInterval * 1000;
@@ -327,6 +353,21 @@ void WarhogMode::update() {
         Serial.printf("[WARHOG] GPS %s - grass %s\n", 
                       hasGPSFix ? "locked" : "lost", 
                       hasGPSFix ? "moving" : "stopped");
+    }
+    
+    // Distance tracking for XP (every 5 seconds when GPS is available)
+    if (hasGPSFix && now - lastDistanceCheck >= 5000) {
+        GPSData gps = GPS::getData();
+        if (lastGPSLat != 0 && lastGPSLon != 0) {
+            double distance = haversineMeters(lastGPSLat, lastGPSLon, gps.latitude, gps.longitude);
+            // Filter out GPS jitter (<5m) and teleportation (>1km)
+            if (distance > 5.0 && distance < 1000.0) {
+                XP::addDistance((uint32_t)distance);
+            }
+        }
+        lastGPSLat = gps.latitude;
+        lastGPSLon = gps.longitude;
+        lastDistanceCheck = now;
     }
     
     // Rotate phrases every 5 seconds when idle
