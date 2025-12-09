@@ -20,6 +20,24 @@
 // After saving, entries are removed from RAM but BSSID tracked in seenBSSIDs set
 static const size_t MAX_ENTRIES = 500;
 
+// SD card retry settings (SD can be busy with other operations)
+static const int SD_RETRY_COUNT = 3;
+static const int SD_RETRY_DELAY_MS = 10;
+
+// Graceful stop request flag for background scan task
+static volatile bool stopRequested = false;
+
+// Helper: Open SD file with retry logic
+static File openFileWithRetry(const char* path, const char* mode) {
+    File f;
+    for (int retry = 0; retry < SD_RETRY_COUNT; retry++) {
+        f = SD.open(path, mode);
+        if (f) return f;
+        delay(SD_RETRY_DELAY_MS);
+    }
+    return f;  // Returns invalid File if all retries failed
+}
+
 // Static members
 bool WarhogMode::running = false;
 uint32_t WarhogMode::lastScanTime = 0;
@@ -50,6 +68,11 @@ volatile int WarhogMode::scanResult = -2;  // -2 = not started, -1 = running, >=
 
 // Periodic ML export
 uint32_t WarhogMode::lastMLExport = 0;
+
+// Scan task check: returns true if should abort
+static inline bool shouldAbortScan() {
+    return stopRequested || !WarhogMode::isRunning();
+}
 
 void WarhogMode::init() {
     entries.clear();
@@ -97,6 +120,9 @@ void WarhogMode::start() {
     // Reset ML export timer
     lastMLExport = millis();
     
+    // Reset stop flag for clean start
+    stopRequested = false;
+    
     // Check if Enhanced ML mode is enabled (might have changed in settings)
     enhancedMode = (Config::ml().collectionMode == MLCollectionMode::ENHANCED);
     
@@ -140,19 +166,28 @@ void WarhogMode::stop() {
     
     Serial.println("[WARHOG] Stopping...");
     
+    // Signal task to stop gracefully
+    stopRequested = true;
+    
     // Stop Enhanced mode capture first
     if (enhancedMode) {
         stopEnhancedCapture();
     }
     
-    // Cancel any running background scan
-    if (scanInProgress) {
-        Serial.println("[WARHOG] Cancelling background scan...");
+    // Wait briefly for background scan to notice stopRequested
+    if (scanInProgress && scanTaskHandle != NULL) {
+        Serial.println("[WARHOG] Waiting for background scan to finish...");
+        // Give task up to 500ms to exit gracefully
+        for (int i = 0; i < 10 && scanTaskHandle != NULL; i++) {
+            delay(50);
+        }
+        // Force cleanup if task didn't exit in time
         if (scanTaskHandle != NULL) {
+            Serial.println("[WARHOG] Force-cancelling background scan...");
             vTaskDelete(scanTaskHandle);
             scanTaskHandle = NULL;
         }
-        // Always clean up scan data even if task just finished
+        // Always clean up scan data
         WiFi.scanDelete();
     }
     scanInProgress = false;
@@ -182,6 +217,9 @@ void WarhogMode::stop() {
     
     Display::setWiFiStatus(false);
     
+    // Reset stop flag for next run
+    stopRequested = false;
+    
     Serial.println("[WARHOG] Stopped");
 }
 
@@ -189,11 +227,30 @@ void WarhogMode::stop() {
 void WarhogMode::scanTask(void* pvParameters) {
     Serial.println("[WARHOG] Scan task starting sync scan...");
     
+    // Check for early abort request
+    if (shouldAbortScan()) {
+        Serial.println("[WARHOG] Scan task: abort requested before start");
+        scanResult = -2;
+        scanTaskHandle = NULL;
+        vTaskDelete(NULL);
+        return;
+    }
+    
     // Do full WiFi reset for reliable scanning
     WiFi.scanDelete();
     WiFi.disconnect(true);
     WiFi.mode(WIFI_OFF);
     vTaskDelay(pdMS_TO_TICKS(100));
+    
+    // Check abort between WiFi operations
+    if (shouldAbortScan()) {
+        Serial.println("[WARHOG] Scan task: abort requested during reset");
+        scanResult = -2;
+        scanTaskHandle = NULL;
+        vTaskDelete(NULL);
+        return;
+    }
+    
     WiFi.mode(WIFI_STA);
     vTaskDelay(pdMS_TO_TICKS(100));
     
@@ -569,22 +626,22 @@ void WarhogMode::saveNewEntries() {
         currentFilename = generateFilename("csv");
         SDLOG("WARHOG", "Generated filename: %s", currentFilename.c_str());
         
-        // Write CSV header
-        File f = SD.open(currentFilename.c_str(), FILE_WRITE);
+        // Write CSV header (with retry)
+        File f = openFileWithRetry(currentFilename.c_str(), FILE_WRITE);
         if (f) {
             f.println("BSSID,SSID,RSSI,Channel,AuthMode,Latitude,Longitude,Altitude,Timestamp");
             f.close();
             SDLOG("WARHOG", "Created file: %s", currentFilename.c_str());
         } else {
-            SDLOG("WARHOG", "Failed to create: %s", currentFilename.c_str());
+            SDLOG("WARHOG", "Failed to create after retries: %s", currentFilename.c_str());
             return;
         }
     }
     
-    // Append unsaved entries that have GPS coordinates
-    File f = SD.open(currentFilename.c_str(), FILE_APPEND);
+    // Append unsaved entries that have GPS coordinates (with retry)
+    File f = openFileWithRetry(currentFilename.c_str(), FILE_APPEND);
     if (!f) {
-        SDLOG("WARHOG", "Failed to append to %s", currentFilename.c_str());
+        SDLOG("WARHOG", "Failed to append after retries to %s", currentFilename.c_str());
         return;
     }
     
@@ -659,9 +716,9 @@ GPSData WarhogMode::getGPSData() {
 }
 
 bool WarhogMode::exportCSV(const char* path) {
-    File f = SD.open(path, FILE_WRITE);
+    File f = openFileWithRetry(path, FILE_WRITE);
     if (!f) {
-        Serial.printf("[WARHOG] Failed to open %s\n", path);
+        Serial.printf("[WARHOG] Failed to open %s after retries\n", path);
         return false;
     }
     
@@ -688,7 +745,7 @@ bool WarhogMode::exportCSV(const char* path) {
 }
 
 bool WarhogMode::exportWigle(const char* path) {
-    File f = SD.open(path, FILE_WRITE);
+    File f = openFileWithRetry(path, FILE_WRITE);
     if (!f) {
         return false;
     }
@@ -741,7 +798,7 @@ bool WarhogMode::exportWigle(const char* path) {
 
 bool WarhogMode::exportKismet(const char* path) {
     // Kismet NetXML format - simplified
-    File f = SD.open(path, FILE_WRITE);
+    File f = openFileWithRetry(path, FILE_WRITE);
     if (!f) {
         return false;
     }
@@ -818,9 +875,9 @@ String WarhogMode::generateFilename(const char* ext) {
 }
 
 bool WarhogMode::exportMLTraining(const char* path) {
-    File f = SD.open(path, FILE_WRITE);
+    File f = openFileWithRetry(path, FILE_WRITE);
     if (!f) {
-        Serial.printf("[WARHOG] Failed to open ML export: %s\n", path);
+        Serial.printf("[WARHOG] Failed to open ML export after retries: %s\n", path);
         return false;
     }
     

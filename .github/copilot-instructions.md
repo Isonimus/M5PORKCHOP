@@ -344,3 +344,99 @@ WiFi scanning runs in a FreeRTOS background task to keep UI responsive:
 3. Copy `edge-impulse-sdk/` to `lib/`
 4. Uncomment `#define EDGE_IMPULSE_ENABLED` in `edge_impulse.h`
 5. Rebuild - real inference replaces heuristics
+
+## Intentional Design Patterns (NOT BUGS)
+
+These patterns may look like issues during code review but are intentional design decisions:
+
+### OINK Mode - Single-Slot Deferred Events
+The `pendingNetworkAdd` pattern uses a single slot, not a queue:
+```cpp
+if (!pendingNetworkAdd) {
+    memcpy(&pendingNetwork, &net, sizeof(DetectedNetwork));
+    pendingNetworkAdd = true;
+}
+```
+**Why**: Avoids heap allocation in WiFi callback. Missing one beacon is harmless - network will be captured on next beacon. This is safer than a dynamic queue in ISR-like context.
+
+### OINK Mode - oinkBusy Guard
+The `oinkBusy` volatile bool prevents concurrent vector access:
+```cpp
+oinkBusy = true;
+// ... process networks/handshakes vectors ...
+oinkBusy = false;
+```
+**Why**: Promiscuous callback runs in WiFi task context. The guard skips callback processing while main loop is iterating vectors. Not a mutex, but sufficient for this use case.
+
+### WARHOG Mode - seenBSSIDs Set Growth
+The `seenBSSIDs` std::set grows during wardriving session:
+- 8 bytes per entry (uint64_t BSSID key)
+- 10,000 networks = ~80KB (ESP32-S3 has 320KB RAM)
+- Cleared on `start()`, not during session
+**Why**: Prevents re-processing already-saved networks. Growth is bounded by session length and cleared on restart.
+
+### WARHOG Mode - SD Retry with openFileWithRetry()
+SD card operations use retry pattern (3 attempts, 10ms delay):
+```cpp
+static File openFileWithRetry(const char* path, const char* mode) {
+    for (int retry = 0; retry < SD_RETRY_COUNT; retry++) {
+        File f = SD.open(path, mode);
+        if (f) return f;
+        delay(SD_RETRY_DELAY_MS);
+    }
+    return f;
+}
+```
+**Why**: SD cards can have transient busy states. Matches pattern in `sdlog.cpp`.
+
+### WARHOG Mode - Graceful Task Shutdown
+Background scan task uses `stopRequested` flag for clean exit:
+```cpp
+stopRequested = true;
+// Wait up to 500ms for task to exit naturally
+for (int i = 0; i < 10 && scanTaskHandle != NULL; i++) {
+    delay(50);
+}
+// Force cleanup only if task didn't exit
+if (scanTaskHandle != NULL) {
+    vTaskDelete(scanTaskHandle);
+}
+```
+**Why**: Allows `WiFi.scanNetworks()` to complete naturally instead of killing mid-operation, preventing WiFi stack corruption.
+
+### PIGGYBLUES Mode - No BLE deinit()
+The code explicitly avoids `NimBLEDevice::deinit()`:
+```cpp
+// DON'T call deinit - ESP32-S3 has issues reinitializing BLE after deinit
+// Just keep BLE initialized but idle
+```
+**Why**: ESP32-S3 has known issues with BLE reinitialization. Keeping stack alive but idle is more reliable.
+
+### Settings Menu - 32 Character Limit
+Text input enforces length limit:
+```cpp
+if (textBuffer.length() < 32) {
+    textBuffer += c;
+}
+```
+**Why**: WiFi SSIDs max 32 chars, passwords fit in allocated buffers.
+
+### Features.cpp - IE Parsing Bounds
+IE parsing has proper bounds checking:
+```cpp
+while (offset + 2 < len) {
+    uint8_t ieLen = frame[offset + 1];
+    if (offset + 2 + ieLen > len) break;
+    // ... parse IE ...
+    offset += 2 + ieLen;
+}
+```
+**Why**: Malformed beacons from attackers must not crash the device.
+
+### Config Values - Not Magic Numbers
+Timeouts and limits in `config.h` have comments explaining their purpose:
+```cpp
+uint16_t channelHopInterval = 500;  // ms between channel hops
+uint16_t burstInterval = 200;       // ms between advertisement bursts (50-500)
+```
+**Why**: Values are configurable at runtime via settings menu, not hardcoded constants.
