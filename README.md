@@ -43,10 +43,10 @@
     catches a handshake.
     
     The piglet personality isn't just for show. It reacts to what you're
-    doing - gets hyped when you pop a 4-way, goes full WARHOG when you're
-    driving around mapping networks, spreads digital chaos in PIGGY BLUES
-    mode, visualizes the RF hellscape in HOG ON SPECTRUM, and gets sleepy
-    when nothing's happening. Feed it handshakes and it'll love you forever.
+    doing - gets hyped when you pop a 4-way, goes tactical when you're
+    mapping the concrete jungle, annoys every phone in bluetooth range,
+    paints pretty pictures of RF interference, and gets sleepy when the
+    airwaves go quiet. Feed it handshakes and it'll love you forever.
 
 
 --[ 2 - What the hell is this thing
