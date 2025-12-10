@@ -19,11 +19,12 @@
         3.1 - OINK Mode
         3.2 - WARHOG Mode
         3.3 - PIGGY BLUES Mode
-        3.4 - File Transfer Mode
-        3.5 - Machine Learning
-        3.6 - Enhanced ML Mode
-        3.7 - XP System
-        3.8 - Achievements
+        3.4 - HOG ON SPECTRUM Mode
+        3.5 - File Transfer Mode
+        3.6 - Machine Learning
+        3.7 - Enhanced ML Mode
+        3.8 - XP System
+        3.9 - Achievements
     4 - Hardware
     5 - Building & Flashing
     6 - Controls
@@ -119,7 +120,31 @@
     once, for science.
 
 
-----[ 3.4 - File Transfer Mode
+----[ 3.4 - HOG ON SPECTRUM Mode
+
+    Press 'H' and watch the 2.4GHz band light up like a Christmas tree:
+
+        * Real-time WiFi spectrum analyzer visualization
+        * 13-channel display with proper Gaussian lobe spreading
+        * 22MHz channel width represented accurately (sigma ~6.6 pixels)
+        * Channel hopping at 100ms per channel (~1.3s full sweep)
+        * Lobe height based on RSSI - stronger signal = taller peak
+        * Color-coded by encryption: green=WPA2/3, yellow=WPA, red=open/WEP
+        * Network selection via ; and . - scroll through discovered APs
+        * Enter key shows network details (SSID, BSSID, RSSI, channel, auth)
+        * Bottom bar shows selected network info or scan status
+        * Stale networks fade after 10 seconds - real-time accuracy
+
+    The spectrum view shows what's actually happening on the airwaves.
+    Each lobe represents a network's signal bleeding across adjacent
+    channels - because that's how 802.11b/g actually works. Welcome to
+    RF hell. Bring headphones, your coffee shop is loud.
+
+    Scroll through networks to find the interesting ones. Hit Enter to
+    see details. Press Backspace or G0 to bail. Simple as.
+
+
+----[ 3.5 - File Transfer Mode
 
     Need to grab those juicy PCAPs off your piglet? WiFi file transfer:
 
@@ -134,7 +159,7 @@
     pig will stare at you blankly wondering what you expected.
 
 
-----[ 3.5 - Machine Learning
+----[ 3.6 - Machine Learning
 
     PORKCHOP doesn't just capture - it thinks. The ML system extracts
     32 features from every beacon frame:
@@ -156,7 +181,7 @@
     The scaffold is ready.
 
 
-----[ 3.6 - Enhanced ML Mode
+----[ 3.7 - Enhanced ML Mode
 
     Two collection modes for different threat models:
 
@@ -191,7 +216,7 @@
         * WPS on open network    Classic honeypot fingerprint.
 
 
-----[ 3.7 - XP System
+----[ 3.8 - XP System
 
     Your piglet has ambitions. Every network sniffed, every handshake
     grabbed, every deauth fired - it all counts. The XP system tracks
@@ -234,7 +259,7 @@
     ready to lose your progress.
 
 
-----[ 3.8 - Achievements
+----[ 3.9 - Achievements
 
     16 secret badges to prove you're not just grinding mindlessly.
     Or maybe you are. Either way, proof of pwn.
@@ -287,13 +312,16 @@
         +-------+----------------------------------+
         | Key   | What it does                     |
         +-------+----------------------------------+
-        | O     | OINK mode - start hunting        |
-        | W     | WARHOG mode - start wardriving   |
+        | O     | OINK - start hunting             |
+        | W     | WARHOG - start wardriving        |
+        | B     | PIGGY BLUES - BLE chaos mode     |
+        | H     | HOG ON SPECTRUM - WiFi analyzer  |
         | S     | Settings menu                    |
         | `     | Toggle menu / Go back            |
-        | ;     | Navigate up / Decrease value     |
-        | .     | Navigate down / Increase value   |
+        | ;     | Navigate up / Scroll left        |
+        | .     | Navigate down / Scroll right     |
         | Enter | Select / Toggle / Confirm        |
+        | Bksp  | Stop current mode, return idle   |
         | G0    | Bail out - return to IDLE        |
         +-------+----------------------------------+
 
@@ -519,6 +547,8 @@
     |   +-- modes/
     |   |   +-- oink.cpp/h        # WiFi scanning, deauth, capture
     |   |   +-- warhog.cpp/h      # GPS wardriving, exports
+    |   |   +-- piggyblues.cpp/h  # BLE notification spam
+    |   |   +-- spectrum.cpp/h    # WiFi spectrum analyzer
     |   |
     |   +-- web/
     |       +-- fileserver.cpp/h  # WiFi file transfer server
