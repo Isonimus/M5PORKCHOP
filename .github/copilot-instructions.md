@@ -67,6 +67,33 @@ README and user-facing docs use oldschool Phrack hacker magazine style:
   - The `z` character represents the curly pigtail, NOT a sleep indicator
 - `src/piglet/mood.cpp/h` - Context-aware phrases, happiness tracking, mode-specific phrase arrays
 
+### Avatar Animation System
+The avatar has several animation layers that modify the base frame in-place:
+
+**Blink Animation**
+- Triggered randomly every 4-8 seconds (mood-adjusted: excited = faster, sad = slower)
+- Single frame - changes eye character to `-` (closed eye)
+- Eye position: Right-facing `"(X 00)"` eye at [1], Left-facing `"(00 X)"` eye at [4]
+- Does NOT change ears or other features (preserves mode-specific ear state)
+
+**Sniff Animation**
+- Triggered on: new network found, handshake captured, PMKID captured, stalking auths
+- Changes nose from `00` to `oo` for 100ms
+- Nose position: Right-facing `"(X 00)"` nose at [3-4], Left-facing `"(00 X)"` nose at [1-2]
+- Call `Avatar::sniff()` to trigger
+
+**Direction Flip**
+- Random direction change every 5-25 seconds (mood-adjusted: excited = more frequent)
+- 50% chance to face left or right on each flip
+- Facing right is default (toward speech bubble)
+
+**Mood Peek System**
+- 1.5 second flash of emotional state (ears/expression change)
+- Triggered on happiness threshold crossing (>70 happy, <-30 sad)
+- Also triggered by `forceMoodPeek()` on significant events (handshake, PMKID, deauth success)
+- Mode-locked states (HUNTING in OINK/SPECTRUM, ANGRY in PIGGYBLUES) always show mode ears
+- Mood peek only shows emotional expression temporarily, then returns to mode state
+
 ### Hardware
 - `src/gps/gps.cpp/h` - TinyGPS++ wrapper, power management
 
