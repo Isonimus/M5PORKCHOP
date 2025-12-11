@@ -23,9 +23,6 @@ public:
     static void blink();
     static void wiggleEars();
     
-    // Flash state temporarily (e.g., EXCITED on handshake capture)
-    static void flashState(AvatarState state, uint8_t cycles);
-    
     // Grass animation control
     static void setGrassMoving(bool moving);
     static bool isGrassMoving() { return grassMoving; }
@@ -40,12 +37,6 @@ private:
     static uint32_t lastBlinkTime;
     static uint32_t blinkInterval;
     
-    // Flash state system (temporary state override)
-    static uint8_t flashCyclesRemaining;
-    static AvatarState flashStateType;
-    static AvatarState returnStateType;
-    static uint32_t lastFlashCycleTime;
-    
     // Grass animation state
     static bool grassMoving;
     static uint32_t lastGrassUpdate;
@@ -56,13 +47,3 @@ private:
     static void drawGrass(M5Canvas& canvas);
     static void updateGrass();
 };
-
-// Avatar frames - 5 lines each
-extern const char* AVATAR_NEUTRAL[];
-extern const char* AVATAR_HAPPY[];
-extern const char* AVATAR_EXCITED[];
-extern const char* AVATAR_HUNTING[];
-extern const char* AVATAR_SLEEPY[];
-extern const char* AVATAR_SAD[];
-extern const char* AVATAR_ANGRY[];
-extern const char* AVATAR_BLINK[];
