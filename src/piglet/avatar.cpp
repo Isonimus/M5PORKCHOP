@@ -11,10 +11,6 @@ uint32_t Avatar::lastBlinkTime = 0;
 uint32_t Avatar::blinkInterval = 3000;
 int Avatar::moodIntensity = 0;  // Phase 8: -100 to 100
 
-// Blink animation hold
-static uint32_t blinkStartTime = 0;
-static const uint32_t BLINK_DURATION_MS = 150;  // Hold blink for 150ms (visible)
-
 // Grass animation state
 bool Avatar::grassMoving = false;
 uint32_t Avatar::lastGrassUpdate = 0;
@@ -176,17 +172,11 @@ void Avatar::draw(M5Canvas& canvas) {
     uint32_t minBlink = (uint32_t)(4000 * blinkMod);
     uint32_t maxBlink = (uint32_t)(8000 * blinkMod);
     
-    // Check if we should blink
+    // Check if we should blink (single frame blink)
     if (now - lastBlinkTime > blinkInterval) {
         isBlinking = true;
-        blinkStartTime = now;
         lastBlinkTime = now;
         blinkInterval = random(minBlink, maxBlink);
-    }
-    
-    // Check if blink should end (after BLINK_DURATION_MS)
-    if (isBlinking && (now - blinkStartTime > BLINK_DURATION_MS)) {
-        isBlinking = false;
     }
 
     // Calculate intensity-adjusted flip interval
@@ -202,35 +192,36 @@ void Avatar::draw(M5Canvas& canvas) {
         flipInterval = random(minFlip, maxFlip);
     }
     
-    // Select frame based on state and direction
+    // Select frame based on state and direction (blink modifies eye only, not ears)
     const char** frame;
+    bool shouldBlink = isBlinking && currentState != AvatarState::SLEEPY;
     
-    if (isBlinking && currentState != AvatarState::SLEEPY) {
-        frame = facingRight ? AVATAR_BLINK_R : AVATAR_BLINK_L;
-        // Blink duration handled by timer above, don't clear here
-    } else {
-        switch (currentState) {
-            case AvatarState::HAPPY:    
-                frame = facingRight ? AVATAR_HAPPY_R : AVATAR_HAPPY_L; break;
-            case AvatarState::EXCITED:  
-                frame = facingRight ? AVATAR_EXCITED_R : AVATAR_EXCITED_L; break;
-            case AvatarState::HUNTING:  
-                frame = facingRight ? AVATAR_HUNTING_R : AVATAR_HUNTING_L; break;
-            case AvatarState::SLEEPY:   
-                frame = facingRight ? AVATAR_SLEEPY_R : AVATAR_SLEEPY_L; break;
-            case AvatarState::SAD:      
-                frame = facingRight ? AVATAR_SAD_R : AVATAR_SAD_L; break;
-            case AvatarState::ANGRY:    
-                frame = facingRight ? AVATAR_ANGRY_R : AVATAR_ANGRY_L; break;
-            default:                    
-                frame = facingRight ? AVATAR_NEUTRAL_R : AVATAR_NEUTRAL_L; break;
-        }
+    // Clear blink flag after reading (single frame blink)
+    if (isBlinking) {
+        isBlinking = false;
     }
     
-    drawFrame(canvas, frame, 3);
+    switch (currentState) {
+        case AvatarState::HAPPY:    
+            frame = facingRight ? AVATAR_HAPPY_R : AVATAR_HAPPY_L; break;
+        case AvatarState::EXCITED:  
+            frame = facingRight ? AVATAR_EXCITED_R : AVATAR_EXCITED_L; break;
+        case AvatarState::HUNTING:  
+            frame = facingRight ? AVATAR_HUNTING_R : AVATAR_HUNTING_L; break;
+        case AvatarState::SLEEPY:   
+            frame = facingRight ? AVATAR_SLEEPY_R : AVATAR_SLEEPY_L; break;
+        case AvatarState::SAD:      
+            frame = facingRight ? AVATAR_SAD_R : AVATAR_SAD_L; break;
+        case AvatarState::ANGRY:    
+            frame = facingRight ? AVATAR_ANGRY_R : AVATAR_ANGRY_L; break;
+        default:                    
+            frame = facingRight ? AVATAR_NEUTRAL_R : AVATAR_NEUTRAL_L; break;
+    }
+    
+    drawFrame(canvas, frame, 3, shouldBlink, facingRight);
 }
 
-void Avatar::drawFrame(M5Canvas& canvas, const char** frame, uint8_t lines) {
+void Avatar::drawFrame(M5Canvas& canvas, const char** frame, uint8_t lines, bool blink, bool faceRight) {
     canvas.setTextDatum(top_left);
     canvas.setTextSize(3);
     canvas.setTextColor(COLOR_ACCENT);
@@ -240,7 +231,24 @@ void Avatar::drawFrame(M5Canvas& canvas, const char** frame, uint8_t lines) {
     int lineHeight = 22;
     
     for (uint8_t i = 0; i < lines; i++) {
-        canvas.drawString(frame[i], startX, startY + i * lineHeight);
+        if (i == 1 && blink) {
+            // Face line - modify eye only when blinking
+            // Face format: "(X 00)" for right-facing, "(00 X)" for left-facing
+            // Eye is at position 1 for right-facing, position 4 for left-facing
+            char modifiedLine[16];
+            strncpy(modifiedLine, frame[i], sizeof(modifiedLine) - 1);
+            modifiedLine[sizeof(modifiedLine) - 1] = '\0';
+            
+            // Replace eye character with '-' for blink
+            if (faceRight) {
+                modifiedLine[1] = '-';  // Eye position in "(X 00)"
+            } else {
+                modifiedLine[4] = '-';  // Eye position in "(00 X)"
+            }
+            canvas.drawString(modifiedLine, startX, startY + i * lineHeight);
+        } else {
+            canvas.drawString(frame[i], startX, startY + i * lineHeight);
+        }
     }
     
     // Draw grass below piglet

@@ -47,7 +47,7 @@ private:
     static uint16_t grassSpeed;  // ms per shift
     static char grassPattern[32];  // Wider for full screen coverage
     
-    static void drawFrame(M5Canvas& canvas, const char** frame, uint8_t lines);
+    static void drawFrame(M5Canvas& canvas, const char** frame, uint8_t lines, bool blink = false, bool faceRight = true);
     static void drawGrass(M5Canvas& canvas);
     static void updateGrass();
 };
