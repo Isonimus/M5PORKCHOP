@@ -30,6 +30,14 @@ String Mood::phraseQueue[3] = {"", "", ""};
 uint8_t Mood::phraseQueueCount = 0;
 uint32_t Mood::lastQueuePop = 0;
 
+// Mood peek system - briefly show emotional state during mode-locked states
+static bool moodPeekActive = false;
+static uint32_t moodPeekStartTime = 0;
+static const uint32_t MOOD_PEEK_DURATION_MS = 1500;  // 1.5 second peek
+static int lastThresholdMood = 50;  // Track for threshold crossing detection
+static const int MOOD_PEEK_HIGH_THRESHOLD = 70;   // Happy peek triggers above this
+static const int MOOD_PEEK_LOW_THRESHOLD = -30;   // Sad peek triggers below this
+
 // --- Mood Momentum Implementation ---
 
 void Mood::applyMomentumBoost(int amount) {
@@ -851,6 +859,7 @@ void Mood::selectPhrase() {
 void Mood::updateAvatarState() {
     // Use effective happiness (base + momentum) for avatar state
     int effectiveMood = getEffectiveHappiness();
+    uint32_t now = millis();
     
     // Phase 8: Pass mood intensity to avatar for animation timing
     Avatar::setMoodIntensity(effectiveMood);
@@ -858,11 +867,59 @@ void Mood::updateAvatarState() {
     // Mode-aware avatar state selection
     PorkchopMode mode = porkchop.getMode();
     
+    // Mood peek: detect threshold crossings and trigger peek
+    // Only for mode-locked states (OINK, PIGGYBLUES, SPECTRUM)
+    bool isModeLockedState = (mode == PorkchopMode::OINK_MODE || 
+                               mode == PorkchopMode::PIGGYBLUES_MODE ||
+                               mode == PorkchopMode::SPECTRUM_MODE);
+    
+    if (isModeLockedState) {
+        // Check for threshold crossings (mood peek triggers)
+        bool crossedHigh = (lastThresholdMood <= MOOD_PEEK_HIGH_THRESHOLD && 
+                            effectiveMood > MOOD_PEEK_HIGH_THRESHOLD);
+        bool crossedLow = (lastThresholdMood >= MOOD_PEEK_LOW_THRESHOLD && 
+                           effectiveMood < MOOD_PEEK_LOW_THRESHOLD);
+        
+        if ((crossedHigh || crossedLow) && !moodPeekActive) {
+            // Trigger mood peek - briefly show emotional state
+            moodPeekActive = true;
+            moodPeekStartTime = now;
+        }
+        
+        // Check if peek has expired
+        if (moodPeekActive && (now - moodPeekStartTime > MOOD_PEEK_DURATION_MS)) {
+            moodPeekActive = false;
+        }
+    } else {
+        // Reset peek state when not in mode-locked state
+        moodPeekActive = false;
+    }
+    
+    // Update threshold tracking for next call
+    lastThresholdMood = effectiveMood;
+    
+    // If mood peek is active, show full mood-based state instead of mode state
+    if (moodPeekActive) {
+        // Full emotional expression during peek
+        if (effectiveMood > MOOD_PEEK_HIGH_THRESHOLD) {
+            Avatar::setState(AvatarState::EXCITED);
+        } else if (effectiveMood > 30) {
+            Avatar::setState(AvatarState::HAPPY);
+        } else if (effectiveMood > -10) {
+            Avatar::setState(AvatarState::NEUTRAL);
+        } else if (effectiveMood > MOOD_PEEK_LOW_THRESHOLD) {
+            Avatar::setState(AvatarState::SLEEPY);
+        } else {
+            Avatar::setState(AvatarState::SAD);
+        }
+        return;  // Peek takes priority
+    }
+    
     switch (mode) {
         case PorkchopMode::OINK_MODE:
         case PorkchopMode::SPECTRUM_MODE:
             // Hunting modes: stay HUNTING, go EXCITED on high mood
-            if (effectiveMood > 70) {
+            if (effectiveMood > MOOD_PEEK_HIGH_THRESHOLD) {
                 Avatar::setState(AvatarState::EXCITED);
             } else {
                 Avatar::setState(AvatarState::HUNTING);
@@ -871,7 +928,7 @@ void Mood::updateAvatarState() {
             
         case PorkchopMode::PIGGYBLUES_MODE:
             // Aggressive mode: stay ANGRY, go EXCITED on high mood
-            if (effectiveMood > 70) {
+            if (effectiveMood > MOOD_PEEK_HIGH_THRESHOLD) {
                 Avatar::setState(AvatarState::EXCITED);
             } else {
                 Avatar::setState(AvatarState::ANGRY);
@@ -880,7 +937,7 @@ void Mood::updateAvatarState() {
             
         case PorkchopMode::WARHOG_MODE:
             // Wardriving: relaxed hunting, biased toward happy
-            if (effectiveMood > 70) {
+            if (effectiveMood > MOOD_PEEK_HIGH_THRESHOLD) {
                 Avatar::setState(AvatarState::EXCITED);
             } else if (effectiveMood > 10) {
                 Avatar::setState(AvatarState::HAPPY);
@@ -891,9 +948,9 @@ void Mood::updateAvatarState() {
             
         case PorkchopMode::FILE_TRANSFER:
             // File transfer: stay happy unless very sad
-            if (effectiveMood > 70) {
+            if (effectiveMood > MOOD_PEEK_HIGH_THRESHOLD) {
                 Avatar::setState(AvatarState::EXCITED);
-            } else if (effectiveMood > -30) {
+            } else if (effectiveMood > MOOD_PEEK_LOW_THRESHOLD) {
                 Avatar::setState(AvatarState::HAPPY);
             } else {
                 Avatar::setState(AvatarState::NEUTRAL);
@@ -902,7 +959,7 @@ void Mood::updateAvatarState() {
             
         default:
             // IDLE, MENU, SETTINGS, etc: full mood-based expression
-            if (effectiveMood > 70) {
+            if (effectiveMood > MOOD_PEEK_HIGH_THRESHOLD) {
                 Avatar::setState(AvatarState::EXCITED);
             } else if (effectiveMood > 30) {
                 Avatar::setState(AvatarState::HAPPY);
