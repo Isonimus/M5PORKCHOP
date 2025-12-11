@@ -86,6 +86,12 @@
         * PCAP export to SD for post-processing
         * Hashcat 22000 format export - fire up that GPU and let it rip
 
+    Stealth features (because WIDS exist):
+
+        * MAC randomization on mode start - new identity each time
+        * Deauth jitter (1-5ms random delays) - no machine-perfect timing
+        * Both enabled by default, toggle in Settings if you're feeling bold
+
 
 ----[ 3.2 - WARHOG Mode
 
@@ -444,6 +450,7 @@
         | CH Hop     | Channel hop interval          | 500ms   |
         | Scan Time  | Dwell time per channel        | 2000ms  |
         | Deauth     | Enable deauth attacks         | ON      |
+        | Rnd MAC    | Randomize MAC on mode start   | ON      |
         | GPS        | Enable GPS module             | ON      |
         | GPS PwrSave| Sleep GPS when not hunting    | ON      |
         | Scan Intv  | WARHOG scan frequency         | 5s      |

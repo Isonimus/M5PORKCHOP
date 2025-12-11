@@ -39,7 +39,7 @@ README and user-facing docs use oldschool Phrack hacker magazine style:
 - `src/core/porkchop.cpp/h` - Main state machine, mode management, event system
 - `src/core/config.cpp/h` - Configuration structs (GPSConfig, WiFiConfig, PersonalityConfig), load/save to SPIFFS
 - `src/core/sdlog.cpp/h` - SD card logging with tag-based log() function, date-stamped log files
-- `src/core/wsl_bypasser.cpp/h` - ESP32 WiFi frame injection for deauth/disassoc
+- `src/core/wsl_bypasser.cpp/h` - ESP32 WiFi frame injection for deauth/disassoc, MAC randomization
 - `src/core/xp.cpp/h` - RPG leveling system with NVS persistence, achievements, XP events
 
 ### Modes
@@ -469,6 +469,20 @@ oinkBusy = true;
 oinkBusy = false;
 ```
 **Why**: Promiscuous callback runs in WiFi task context. The guard skips callback processing while main loop is iterating vectors. Not a mutex, but sufficient for this use case.
+
+### OINK Mode - Deauth Jitter
+The `sendDeauthBurst()` function adds random delays between frames:
+```cpp
+delay(random(1, 6));  // 1-5ms jitter
+```
+**Why**: WIDS systems detect deauth floods by looking for machine-perfect 0ms timing between frames. Random jitter makes traffic look more organic. Applied between forward/reverse frames and between burst iterations.
+
+### MAC Randomization
+`WSLBypasser::randomizeMAC()` generates a random locally-administered MAC on mode start:
+```cpp
+mac[0] = (mac[0] & 0xFC) | 0x02;  // Set local bit, clear multicast
+```
+**Why**: Prevents device fingerprinting across sessions. Uses ESP32 hardware RNG (`esp_fill_random`). Called in OINK, WARHOG, and SPECTRUM mode start() if `Config::wifi().randomizeMAC` is true (default ON).
 
 ### WARHOG Mode - seenBSSIDs Set Growth
 The `seenBSSIDs` std::set grows during wardriving session:
