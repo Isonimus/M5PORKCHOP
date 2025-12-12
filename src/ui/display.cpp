@@ -171,7 +171,7 @@ void Display::drawTopBar() {
             modeColor = COLOR_ACCENT;
             break;
         case PorkchopMode::SPECTRUM_MODE:
-            modeStr = "SPECTRUM";
+            modeStr = "HOG ON SPECTRUM";
             modeColor = COLOR_ACCENT;
             break;
         case PorkchopMode::MENU:
@@ -221,12 +221,10 @@ void Display::drawTopBar() {
     topBar.setTextColor(modeColor);
     topBar.setTextDatum(top_left);
     topBar.drawString(modeStr, 2, 2);
-    
-    // Center: clock (from GPS or --:--)
-    topBar.setTextDatum(top_center);
+
+    // Clock (from GPS or --:--)
     topBar.setTextColor(COLOR_FG);
     String timeStr = GPS::hasFix() ? GPS::getTimeString() : "--:--";
-    topBar.drawString(timeStr, DISPLAY_W / 2, 2);
     
     // Right side: battery + status icons
     topBar.setTextDatum(top_right);
@@ -242,7 +240,7 @@ void Display::drawTopBar() {
     status += mlStatus ? "M" : "-";
     
     // Draw battery then status
-    String rightStr = battStr + " " + status;
+    String rightStr = battStr + " " + status + " " + timeStr;
     topBar.drawString(rightStr, DISPLAY_W - 2, 2);
 }
 
