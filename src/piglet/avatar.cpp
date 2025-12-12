@@ -131,8 +131,8 @@ void Avatar::init() {
     grassSpeed = 80;
     lastGrassUpdate = millis();
     for (int i = 0; i < 26; i++) {
-        // 70% chance of '1', 30% chance of '0'
-        grassPattern[i] = (random(0, 10) < 7) ? '1' : '0';
+        // Random grass pattern /\/\\//\/
+        grassPattern[i] = (random(0, 2) == 0) ? '/' : '\\';
     }
     grassPattern[26] = '\0';
 }
@@ -288,9 +288,9 @@ void Avatar::setGrassPattern(const char* pattern) {
 }
 
 void Avatar::resetGrassPattern() {
-    // Reset to random binary pattern (like init)
+    // Reset to random grass pattern /\/\\//\/
     for (int i = 0; i < 26; i++) {
-        grassPattern[i] = (random(0, 10) < 7) ? '1' : '0';
+        grassPattern[i] = (random(0, 2) == 0) ? '/' : '\\';
     }
     grassPattern[26] = '\0';
 }
@@ -324,7 +324,7 @@ void Avatar::updateGrass() {
     // Occasionally mutate a character for variety
     if (random(0, 30) == 0) {
         int pos = random(0, 26);
-        grassPattern[pos] = (random(0, 10) < 7) ? '1' : '0';
+        grassPattern[pos] = (random(0, 2) == 0) ? '/' : '\\';
     }
 }
 
