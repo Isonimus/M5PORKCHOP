@@ -36,6 +36,11 @@ static bool facingRight = true;  // Default: pig looks right
 static uint32_t lastFlipTime = 0;
 static uint32_t flipInterval = 5000;
 
+// Look behavior (stationary observation)
+static uint32_t lastLookTime = 0;
+static uint32_t lookInterval = 2000;  // Look around every 2-5s when stationary
+bool Avatar::onRightSide = false;  // Track which side of screen pig is on (class static)
+
 // --- DERPY STYLE with direction ---
 // Right-looking frames (snout 00 on right side of face, pig looks RIGHT)
 const char* AVATAR_NEUTRAL_R[] = {
@@ -133,8 +138,11 @@ void Avatar::init() {
     
     // Init direction - default facing right (toward speech bubble)
     facingRight = true;
+    onRightSide = false;  // Start on left side
     lastFlipTime = millis();
-    flipInterval = random(5000, 20000);  // 5-20s initial
+    flipInterval = random(10000, 30000);  // Walk timer: 10-30s
+    lastLookTime = millis();
+    lookInterval = random(2000, 5000);  // Look timer: 2-5s
     
     // Init grass pattern - full screen width at size 2 (~24 chars)
     grassMoving = false;
@@ -159,6 +167,10 @@ void Avatar::setMoodIntensity(int intensity) {
 
 bool Avatar::isFacingRight() {
     return facingRight;
+}
+
+bool Avatar::isOnRightSide() {
+    return onRightSide;
 }
 
 bool Avatar::isTransitioning() {
@@ -198,11 +210,15 @@ void Avatar::draw(M5Canvas& canvas) {
             transitioning = false;
             currentX = transitionToX;
             facingRight = transitionToFacingRight;
+            onRightSide = (currentX > 60);  // Track which side we're on
             // Start grass now if it was pending
             if (pendingGrassStart) {
                 grassMoving = true;
                 pendingGrassStart = false;
             }
+            // Reset look timer for new position
+            lastLookTime = now;
+            lookInterval = random(2000, 5000);
         } else {
             // Animate X position (ease in-out)
             float t = (float)elapsed / TRANSITION_DURATION_MS;
@@ -229,26 +245,44 @@ void Avatar::draw(M5Canvas& canvas) {
         blinkInterval = random(minBlink, maxBlink);
     }
 
-    // Calculate intensity-adjusted flip interval
+    // Calculate intensity-adjusted intervals
     // Excited pig looks around more, sad pig stares
     float flipMod = 1.0f - (moodIntensity / 150.0f);  // ~0.33 to ~1.66
-    uint32_t minFlip = (uint32_t)(10000 * flipMod);   // 10s base (was 5s)
-    uint32_t maxFlip = (uint32_t)(40000 * flipMod);   // 40s base (was 25s)
+    uint32_t minWalk = (uint32_t)(15000 * flipMod);   // Walk timer: 15s base
+    uint32_t maxWalk = (uint32_t)(40000 * flipMod);   // Walk timer: 40s base
+    uint32_t minLook = (uint32_t)(2000 * flipMod);    // Look timer: 2s base
+    uint32_t maxLook = (uint32_t)(6000 * flipMod);    // Look timer: 6s base
     
-    // Check if we should flip direction - start transition instead of instant flip
-    // Disable random flipping while grass is moving (pig must face opposite to grass)
-    if (!transitioning && !grassMoving && !pendingGrassStart && now - lastFlipTime > flipInterval) {
-        bool newFacingRight = random(0, 2) == 1;
-        if (newFacingRight != facingRight) {
+    // Stationary behavior: LOOK around (no X change) and occasionally WALK to new position
+    // Disable all movement while grass is moving (treadmill mode)
+    if (!transitioning && !grassMoving && !pendingGrassStart) {
+        // LOOK timer - quick head turns while staying in place
+        if (now - lastLookTime > lookInterval) {
+            // 50% chance to look the other way
+            if (random(0, 2) == 0) {
+                facingRight = !facingRight;  // Instant flip, no transition
+            }
+            lastLookTime = now;
+            lookInterval = random(minLook, maxLook);
+        }
+        
+        // WALK timer - move to new position on screen
+        if (now - lastFlipTime > flipInterval) {
+            // Decide new position (opposite side)
+            bool goToRightSide = !onRightSide;
+            // Face direction of travel during walk
+            bool faceDirectionDuringWalk = goToRightSide;  // Face right if going right
+            
             // Start walk transition
             transitioning = true;
             transitionStartTime = now;
             transitionFromX = currentX;
-            transitionToX = newFacingRight ? 2 : 130;  // Target position
-            transitionToFacingRight = newFacingRight;
+            transitionToX = goToRightSide ? 130 : 2;  // Right side or left side
+            transitionToFacingRight = faceDirectionDuringWalk;
+            
+            lastFlipTime = now;
+            flipInterval = random(minWalk, maxWalk);
         }
-        lastFlipTime = now;
-        flipInterval = random(minFlip, maxFlip);
     }
     
     // Select frame based on state and direction (blink modifies eye only, not ears)
@@ -294,20 +328,39 @@ void Avatar::drawFrame(M5Canvas& canvas, const char** frame, uint8_t lines, bool
         // Handle body line (i=2) for dynamic tail
         if (i == 2) {
             char bodyLine[16];
+            bool tailOnLeft = false;  // Track if tail prefix added (needs X offset)
             if (transitioning) {
                 // During transition: show tail on trailing side
                 bool movingRight = (transitionToX > transitionFromX);
                 if (movingRight) {
                     strncpy(bodyLine, "z(    )", sizeof(bodyLine));  // Tail trails on left
+                    tailOnLeft = true;
                 } else {
                     strncpy(bodyLine, "(    )z", sizeof(bodyLine));  // Tail trails on right
                 }
             } else {
-                // Stationary: no tail
-                strncpy(bodyLine, "(    )", sizeof(bodyLine));
+                // Stationary: show tail when facing AWAY from screen center
+                // Right side + facing right = tail on left (facing away)
+                // Right side + facing left = no tail (facing center)
+                // Left side + facing left = tail on right (facing away)
+                // Left side + facing right = no tail (facing center)
+                bool facingAway = (onRightSide && faceRight) || (!onRightSide && !faceRight);
+                if (facingAway) {
+                    if (onRightSide) {
+                        strncpy(bodyLine, "z(    )", sizeof(bodyLine));  // Right side, tail on left
+                        tailOnLeft = true;
+                    } else {
+                        strncpy(bodyLine, "(    )z", sizeof(bodyLine));  // Left side, tail on right
+                    }
+                } else {
+                    strncpy(bodyLine, "(    )", sizeof(bodyLine));  // Facing center, no tail
+                }
             }
             bodyLine[sizeof(bodyLine) - 1] = '\0';
-            canvas.drawString(bodyLine, startX, startY + i * lineHeight);
+            // When tail is on left (z prefix), offset X back by 1 char width (18px at size 3)
+            // to keep body aligned with head
+            int bodyX = tailOnLeft ? (startX - 18) : startX;
+            canvas.drawString(bodyLine, bodyX, startY + i * lineHeight);
         } else if (i == 1 && (blink || sniff)) {
             // Face line - modify eye and/or nose
             // Face format: "(X 00)" for right-facing, "(00 X)" for left-facing

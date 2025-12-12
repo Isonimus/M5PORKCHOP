@@ -1044,12 +1044,12 @@ void Mood::draw(M5Canvas& canvas) {
     }
     if (numLines == 0) numLines = 1;  // At least 1 line
     
-    // Position bubble based on pig facing direction (parallax effect)
-    // Pig facing right = pig on left, bubble on right
-    // Pig facing left = pig on right, bubble on left
-    bool pigFacingRight = Avatar::isFacingRight();
+    // Position bubble based on pig SCREEN POSITION (not facing direction)
+    // Pig on left side = bubble on right
+    // Pig on right side = bubble on left
+    bool pigOnRight = Avatar::isOnRightSide();
     int bubbleW = 116;  // Fixed bubble width
-    int bubbleX = pigFacingRight ? 120 : 4;  // Right side or left side
+    int bubbleX = pigOnRight ? 4 : 120;  // Left side if pig is on right, right side if pig is on left
     int bubbleY = 3;
     int lineHeight = 11;
     int bubbleH = 8 + (numLines * lineHeight);  // Padding + actual lines
@@ -1066,15 +1066,15 @@ void Mood::draw(M5Canvas& canvas) {
     int arrowTopY = arrowTipY - 5;
     int arrowBottomY = arrowTipY + 5;
     
-    if (pigFacingRight) {
-        // Bubble on right, arrow points LEFT toward pig
-        int arrowTipX = bubbleX - 8;
-        int arrowBaseX = bubbleX;
-        canvas.fillTriangle(arrowTipX, arrowTipY, arrowBaseX, arrowTopY, arrowBaseX, arrowBottomY, COLOR_FG);
-    } else {
-        // Bubble on left, arrow points RIGHT toward pig
+    if (pigOnRight) {
+        // Pig on right, bubble on left, arrow points RIGHT toward pig
         int arrowTipX = bubbleX + bubbleW + 8;
         int arrowBaseX = bubbleX + bubbleW;
+        canvas.fillTriangle(arrowTipX, arrowTipY, arrowBaseX, arrowTopY, arrowBaseX, arrowBottomY, COLOR_FG);
+    } else {
+        // Pig on left, bubble on right, arrow points LEFT toward pig
+        int arrowTipX = bubbleX - 8;
+        int arrowBaseX = bubbleX;
         canvas.fillTriangle(arrowTipX, arrowTipY, arrowBaseX, arrowTopY, arrowBaseX, arrowBottomY, COLOR_FG);
     }
     

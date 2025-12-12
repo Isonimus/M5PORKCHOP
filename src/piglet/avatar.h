@@ -19,7 +19,8 @@ public:
     static void draw(M5Canvas& canvas);
     static void setState(AvatarState state);
     static AvatarState getState() { return currentState; }
-    static bool isFacingRight();  // Get current facing direction for bubble positioning
+    static bool isFacingRight();  // Get current facing direction
+    static bool isOnRightSide();  // Get screen position (for bubble placement)
     static bool isTransitioning();  // True during walk transition (hide bubble)
     static int getCurrentX();  // Get current animated X position
     
@@ -59,6 +60,7 @@ private:
     static bool grassMoving;
     static bool grassDirection;  // true = grass scrolls right, false = scrolls left
     static bool pendingGrassStart;  // Wait for transition before starting grass
+    static bool onRightSide;  // Track which side of screen pig is on
     static uint32_t lastGrassUpdate;
     static uint16_t grassSpeed;  // ms per shift
     static char grassPattern[32];  // Wider for full screen coverage
