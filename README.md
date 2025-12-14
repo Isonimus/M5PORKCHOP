@@ -592,9 +592,8 @@
     Settings persist to SPIFFS. Your piglet remembers.
 
     Navigate with ; and . keys, Enter to toggle/edit. Press ESC (backtick)
-    or Backspace to auto-save and exit. No "Save & Exit" button needed -
-    piggy's got you covered. Changes take effect immediately, including
-    GPS pin changes (hot-reinit, no reboot required).
+    or Backspace to save and exit. Changes take effect immediately,
+    including GPS pin changes (hot-reinit, no reboot required).
 
         +------------+-------------------------------+---------+
         | Setting    | Description                   | Default |
