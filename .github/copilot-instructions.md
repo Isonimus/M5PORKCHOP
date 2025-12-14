@@ -5,10 +5,12 @@
 M5Porkchop is a WiFi security research tool for the M5Cardputer (ESP32-S3 based) with a "piglet" mascot personality. It features:
 - **OINK Mode**: WiFi scanning, handshake capture, PMKID capture, deauth attacks
   - **DO NO HAM Mode**: Passive-only recon toggle (no attacks, fast hopping, PMKID still works)
+  - **BOAR BROS**: Network exclusion list (press E to exclude, persists to SD)
 - **WARHOG Mode**: Wardriving with GPS logging
 - **PIGGYBLUES Mode**: BLE notification spam (AppleJuice, FastPair, Samsung, SwiftPair)
 - **HOG ON SPECTRUM Mode**: Real-time WiFi spectrum analyzer with Gaussian lobes
 - **RPG XP System**: Level up from BACON N00B to MUDGE UNCHA1NED (40 ranks)
+- **WPA-SEC Integration**: Distributed cloud cracking with status tracking
 - Interactive ASCII piglet avatar with mood-based phrases
 - Settings menu with persistent configuration
 - SD card logging and log viewer
@@ -54,6 +56,7 @@ README and user-facing docs use oldschool Phrack hacker magazine style:
 - `src/ui/menu.cpp/h` - Main menu with callback system
 - `src/ui/settings_menu.cpp/h` - Interactive settings with TOGGLE, VALUE, ACTION, TEXT item types
 - `src/ui/captures_menu.cpp/h` - LOOT menu: captured handshakes/PMKID viewer, WPA-SEC integration, nuke loot feature
+- `src/ui/boar_bros_menu.cpp/h` - BOAR BROS menu: view/delete excluded networks
 - `src/ui/achievements_menu.cpp/h` - Achievements viewer with unlock descriptions
 - `src/ui/log_viewer.cpp/h` - SD card log file viewer with scrolling
 - `src/ui/swine_stats.cpp/h` - Lifetime stats overlay with buff/debuff system
@@ -173,6 +176,7 @@ Used in: `showToast()`, `showLevelUp()`, `showClassPromotion()`, warning dialogs
 - **Enter** - Select/Toggle/Confirm
 - **Backtick (`)** - Open menu / Exit to previous mode
 - **O/W/B/H/S/T** - Quick mode shortcuts from IDLE (Oink/Warhog/piggyBlues/Hog on spectrum/Swine stats/Tweak settings)
+- **E** - In OINK mode: Add selected network to BOAR BROS exclusion list
 - **P** - Take screenshot (saves to `/screenshots/screenshotNNN.bmp` on SD card)
 - **Backspace** - Stop current mode and return to IDLE
 - **G0 button** - Physical button on top, returns to IDLE from any mode (uses GPIO0 direct read)
@@ -181,9 +185,9 @@ Used in: `showToast()`, `showLevelUp()`, `showClassPromotion()`, warning dialogs
 
 ```
 PorkchopMode:
-  IDLE -> OINK_MODE | WARHOG_MODE | PIGGYBLUES_MODE | SPECTRUM_MODE | MENU | SETTINGS | CAPTURES | ACHIEVEMENTS | ABOUT | FILE_TRANSFER | LOG_VIEWER | SWINE_STATS
+  IDLE -> OINK_MODE | WARHOG_MODE | PIGGYBLUES_MODE | SPECTRUM_MODE | MENU | SETTINGS | CAPTURES | ACHIEVEMENTS | ABOUT | FILE_TRANSFER | LOG_VIEWER | SWINE_STATS | BOAR_BROS
   MENU -> (any mode via menu selection)
-  SETTINGS/CAPTURES/ACHIEVEMENTS/ABOUT/FILE_TRANSFER/LOG_VIEWER/SWINE_STATS -> MENU (via Enter or backtick)
+  SETTINGS/CAPTURES/ACHIEVEMENTS/ABOUT/FILE_TRANSFER/LOG_VIEWER/SWINE_STATS/BOAR_BROS -> MENU (via Enter or backtick)
   G0 button -> IDLE (from any mode)
 ```
 
@@ -242,7 +246,7 @@ Distributed WPA/WPA2 password cracking via wpa-sec.stanev.org. Upload captured h
 
 ### API Endpoints
 - **Host**: `wpa-sec.stanev.org` (HTTPS port 443)
-- **GET results**: `/?api&key=<32-char-hex-key>` - Returns potfile format lines
+- **GET results**: `/?api&dl=1` with `Cookie: key=<32-char-hex-key>` - Returns potfile format lines
 - **POST upload**: `/?submit` with `Cookie: key=<key>` - Multipart form upload of .pcap
 
 ### Potfile Format
@@ -672,7 +676,7 @@ The classifier scores networks on:
 
 ### Training Data Collection
 In WARHOG mode (Enhanced), ML training data is automatically exported:
-- **Periodic export**: Every 60 seconds to `/ml_training.csv` (full accumulated data)
+- **Periodic export**: Every 60 seconds to `/mldata/ml_training_*.ml.csv` (full accumulated data)
 - **On stop**: Final export when G0 is pressed
 - **Crash protection**: Periodic dumps ensure at most 1 minute of data loss
 
@@ -721,7 +725,7 @@ Files are created on first write with `ensureCSVFileReady()` / `ensureMLFileRead
 ### Export Formats
 Session files are created with GPS timestamp or millis+random suffix:
 - **CSV**: `/wardriving/warhog_YYYYMMDD_HHMMSS.csv` - BSSID, SSID, RSSI, channel, auth, GPS coords
-- **ML Training**: `/ml_training_YYYYMMDD_HHMMSS.ml.csv` - 32-feature vector with labels
+- **ML Training**: `/mldata/ml_training_YYYYMMDD_HHMMSS.ml.csv` - 32-feature vector with labels
 
 Legacy export functions (`exportWigle`, `exportKismet`) are deprecated - data is already on disk.
 
@@ -807,6 +811,42 @@ WPA*01*PMKID*MAC_AP*MAC_CLIENT*ESSID***01
 - These are useless for cracking (no cached PMK for client)
 - Code skips zero PMKIDs during extraction AND save
 - If piglet announces PMKID capture, it's a real crackable one
+
+### OINK Mode - BOAR BROS (Network Exclusion)
+Press [E] in OINK mode to add the selected network to the exclusion list:
+
+**Storage:**
+- `std::map<uint64_t, String> boarBros` - BSSID to SSID mapping
+- File: `/boar_bros.txt` on SD card
+- Format: `AABBCCDDEEFF OptionalSSID` (12 hex chars + optional space + SSID)
+- Hidden networks stored as "NONAME BRO"
+
+**Behavior:**
+- Excluded networks skipped in `getNextTarget()` for attack targeting
+- Excluded networks skipped in deauth storms
+- Persists across reboots via SD card file
+- Max 100 entries (`MAX_BOAR_BROS`)
+
+**Key Functions:**
+- `OinkMode::excludeNetwork(int index)` - Add network to boarBros map
+- `OinkMode::isExcluded(const uint8_t* bssid)` - Check if network is excluded
+- `OinkMode::removeBoarBro(uint64_t bssid)` - Remove from map and save
+- `OinkMode::loadBoarBros()` / `saveBoarBros()` - SD card persistence
+
+**ESP32 SD Library Quirk:**
+`FILE_WRITE` mode appends, not overwrites. Must `SD.remove()` before `SD.open()` to get clean overwrite:
+```cpp
+if (SD.exists(BOAR_BROS_FILE)) {
+    SD.remove(BOAR_BROS_FILE);
+}
+File f = SD.open(BOAR_BROS_FILE, FILE_WRITE);
+```
+
+**BOAR BROS Menu:**
+- Access via main menu: "BOAR BROS (BRO: X)"
+- Navigation: `;`/`.` scroll, `D` delete selected, `Y/N` confirm
+- Shows SSID (or "NONAME BRO") + full BSSID for each entry
+- Delete removes from OinkMode::boarBros and saves to SD
 
 ### OINK Mode - DO NO HAM (Passive Recon)
 Toggle in Settings Menu enables passive-only mode with hardcoded optimal values:

@@ -99,6 +99,20 @@
         * Deauth jitter (1-5ms random delays) - no machine-perfect timing
         * Both enabled by default, toggle in Settings if you're feeling bold
 
+    BOAR BROS system:
+
+        While in OINK mode, press [E] to add the selected network to your
+        BOAR BROS exclusion list. Tagged networks are permanently ignored:
+
+        * Excluded from attack targeting - your home router stays safe
+        * Excluded from deauth storms - don't pwn your own network
+        * Persists across reboots in /boar_bros.txt on SD card
+        * Hidden networks stored as "NONAME BRO"
+        * View/manage in menu: BOAR BROS (shows count: BRO: X)
+        * Delete bros from the list with [D] key in management menu
+
+        Your neighbor's router? Fair game. Your own? BOAR BRO.
+
 
 ------[ 3.1.1 - DO NO HAM Mode
 
@@ -629,6 +643,7 @@
         | H     | HOG ON SPECTRUM - WiFi analyzer  |
         | S     | SWINE STATS - lifetime stats     |
         | T     | Tweak settings                   |
+        | E     | Exclude network (BOAR BRO)       |
         | P     | Screenshot - save to SD card     |
         | `     | Toggle menu / Go back            |
         | ;     | Navigate up / Scroll left        |
@@ -724,7 +739,7 @@
     How it works:
         - Every network gets 32 features extracted from beacon frames
         - Data accumulates in memory as you drive around
-        - Every 60 seconds, WARHOG dumps to /ml_training.csv - crash protection
+        - Every 60 seconds, WARHOG dumps to /mldata/ - crash protection
         - When you stop WARHOG (G0 button), final export happens
         - Worst case you lose 1 minute of data if piggy crashes
 
@@ -801,6 +816,7 @@
     |   |   +-- menu.cpp/h        # Main menu with callbacks
     |   |   +-- settings_menu.cpp/h   # Interactive settings
     |   |   +-- captures_menu.cpp/h   # LOOT menu - browse captured handshakes
+    |   |   +-- boar_bros_menu.cpp/h  # BOAR BROS - manage excluded networks
     |   |   +-- achievements_menu.cpp/h # Proof of pwn viewer
     |   |   +-- log_viewer.cpp/h  # View SD card logs
     |   |   +-- swine_stats.cpp/h # Lifetime stats, buff/debuff system
