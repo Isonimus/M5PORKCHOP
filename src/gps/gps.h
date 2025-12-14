@@ -22,6 +22,7 @@ struct GPSData {
 class GPS {
 public:
     static void init(uint8_t rxPin, uint8_t txPin, uint32_t baud = 9600);
+    static void reinit(uint8_t rxPin, uint8_t txPin, uint32_t baud);  // Re-init with new pins
     static void update();
     static void sleep();
     static void wake();

@@ -49,6 +49,11 @@ private:
     static String textBuffer;  // Buffer for text input
     static uint8_t cursorPos;  // Cursor position in text
     
+    // Track original GPS settings to detect changes
+    static uint8_t origGpsRxPin;
+    static uint8_t origGpsTxPin;
+    static uint32_t origGpsBaud;
+    
     static const uint8_t VISIBLE_ITEMS = 6;  // Fits without nav instructions
     
     static void handleInput();

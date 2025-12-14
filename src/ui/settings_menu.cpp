@@ -4,6 +4,7 @@
 #include "display.h"
 #include "../core/config.h"
 #include "../core/sdlog.h"
+#include "../gps/gps.h"
 #include <M5Cardputer.h>
 #include <SD.h>
 
@@ -18,6 +19,9 @@ bool SettingsMenu::editing = false;
 bool SettingsMenu::textEditing = false;
 String SettingsMenu::textBuffer = "";
 uint8_t SettingsMenu::cursorPos = 0;
+uint8_t SettingsMenu::origGpsRxPin = 0;
+uint8_t SettingsMenu::origGpsTxPin = 0;
+uint32_t SettingsMenu::origGpsBaud = 0;
 
 void SettingsMenu::init() {
     loadFromConfig();
@@ -253,14 +257,7 @@ void SettingsMenu::loadFromConfig() {
         30, 120, 15, "s", "",
         "Target refresh rate"
     });
-    
-    // Save & Exit action
-    items.push_back({
-        "< Save & Exit >",
-        SettingType::ACTION,
-        0, 0, 0, 0, "", "",
-        "Write config, bail out"
-    });
+    // No Save & Exit button - ESC/backtick auto-saves
 }
 
 String SettingsMenu::getSelectedDescription() {
@@ -276,10 +273,10 @@ void SettingsMenu::saveToConfig() {
     w.otaSSID = items[0].textValue;
     w.otaPassword = items[1].textValue;
     // items[2] is WPA-SEC display (read-only), items[3] is Load Key File action
-    w.channelHopInterval = items[9].value;
-    w.lockTime = items[10].value;
-    w.enableDeauth = items[11].value == 1;
-    w.randomizeMAC = items[12].value == 1;
+    w.channelHopInterval = items[8].value;
+    w.lockTime = items[9].value;
+    w.enableDeauth = items[10].value == 1;
+    w.randomizeMAC = items[11].value == 1;
     Config::setWiFi(w);
     
     // Sound, Brightness, and Dimming
@@ -296,34 +293,34 @@ void SettingsMenu::saveToConfig() {
     
     // GPS settings
     auto& g = Config::gps();
-    g.enabled = items[13].value == 1;
-    g.powerSave = items[14].value == 1;
-    g.updateInterval = items[15].value;  // Scan interval in seconds
+    g.enabled = items[12].value == 1;
+    g.powerSave = items[13].value == 1;
+    g.updateInterval = items[14].value;  // Scan interval in seconds
     
     // Convert baud index to actual baud rate
     static const uint32_t baudRates[] = {9600, 38400, 57600, 115200};
-    g.baudRate = baudRates[items[16].value];
+    g.baudRate = baudRates[items[15].value];
     
     // GPS RX/TX pins (G1/G2 for Grove, G13/G15 for Cap LoRa868)
-    g.rxPin = items[17].value;
-    g.txPin = items[18].value;
+    g.rxPin = items[16].value;
+    g.txPin = items[17].value;
     
-    g.timezoneOffset = items[19].value;
+    g.timezoneOffset = items[18].value;
     Config::setGPS(g);
     
     // ML settings
     auto& m = Config::ml();
-    m.collectionMode = static_cast<MLCollectionMode>(items[20].value);
+    m.collectionMode = static_cast<MLCollectionMode>(items[19].value);
     Config::setML(m);
     
     // SD Logging
-    SDLog::setEnabled(items[21].value == 1);
+    SDLog::setEnabled(items[20].value == 1);
     
     // BLE settings (PIGGY BLUES)
     auto& b = Config::ble();
-    b.burstInterval = items[22].value;
-    b.advDuration = items[23].value;
-    b.rescanInterval = items[24].value;
+    b.burstInterval = items[21].value;
+    b.advDuration = items[22].value;
+    b.rescanInterval = items[23].value;
     Config::setBLE(b);
     
     // Save to file
@@ -340,6 +337,12 @@ void SettingsMenu::show() {
     textBuffer = "";
     cursorPos = 0;
     keyWasPressed = true;  // Ignore the Enter that selected us from menu
+    
+    // Store original GPS config to detect changes
+    origGpsRxPin = Config::gps().rxPin;
+    origGpsTxPin = Config::gps().txPin;
+    origGpsBaud = Config::gps().baudRate;
+    
     loadFromConfig();
 }
 
@@ -424,10 +427,6 @@ void SettingsMenu::handleInput() {
                         Display::showToast("Invalid key");
                     }
                 }
-            } else {
-                // Save & Exit
-                saveToConfig();
-                exitRequested = true;
             }
         } else if (item.type == SettingType::TOGGLE) {
             // Toggle ON/OFF
@@ -454,11 +453,25 @@ void SettingsMenu::handleInput() {
         }
     }
     
-    // ESC/backtick to exit edit mode or menu
+    // ESC/backtick to exit edit mode or save and exit menu
     if (M5Cardputer.Keyboard.isKeyPressed('`') || M5Cardputer.Keyboard.isKeyPressed(KEY_BACKSPACE)) {
         if (editing) {
             editing = false;
         } else {
+            saveToConfig();
+            
+            // Re-init GPS only if pins or baud changed
+            if (Config::gps().enabled) {
+                bool gpsChanged = (Config::gps().rxPin != origGpsRxPin) ||
+                                  (Config::gps().txPin != origGpsTxPin) ||
+                                  (Config::gps().baudRate != origGpsBaud);
+                if (gpsChanged) {
+                    GPS::reinit(Config::gps().rxPin, Config::gps().txPin, Config::gps().baudRate);
+                    Display::showToast("GPS reinit");
+                }
+            }
+            
+            Display::showToast("Saved");
             exitRequested = true;
         }
     }

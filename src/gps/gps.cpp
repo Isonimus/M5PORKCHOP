@@ -28,6 +28,30 @@ void GPS::init(uint8_t rxPin, uint8_t txPin, uint32_t baud) {
     Serial.printf("[GPS] Initialized on pins RX:%d TX:%d @ %d baud\n", rxPin, txPin, baud);
 }
 
+void GPS::reinit(uint8_t rxPin, uint8_t txPin, uint32_t baud) {
+    // Stop existing serial connection
+    if (serial) {
+        Serial2.end();
+        serial = nullptr;
+        active = false;
+    }
+    
+    // Small delay to let hardware settle
+    delay(50);
+    
+    // Re-initialize with new parameters
+    Serial2.begin(baud, SERIAL_8N1, rxPin, txPin);
+    serial = &Serial2;
+    active = true;
+    
+    // Reset GPS state
+    memset(&currentData, 0, sizeof(GPSData));
+    currentData.valid = false;
+    currentData.fix = false;
+    
+    Serial.printf("[GPS] Re-initialized on pins RX:%d TX:%d @ %d baud\n", rxPin, txPin, baud);
+}
+
 void GPS::update() {
     if (!active || serial == nullptr) return;
     
