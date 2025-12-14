@@ -512,12 +512,14 @@ void CapturesMenu::uploadSelected() {
     // Check if WPA-SEC key is configured
     if (Config::wifi().wpaSecKey.isEmpty()) {
         Display::showToast("Set WPA-SEC key first");
+        delay(500);
         return;
     }
     
     // Already cracked? No need to upload
     if (cap.status == CaptureStatus::CRACKED) {
         Display::showToast("Already cracked!");
+        delay(500);
         return;
     }
     
@@ -528,6 +530,7 @@ void CapturesMenu::uploadSelected() {
     
     if (!SD.exists(pcapPath)) {
         Display::showToast("No PCAP file found");
+        delay(500);
         return;
     }
     
@@ -543,6 +546,7 @@ void CapturesMenu::uploadSelected() {
         if (!WPASec::connect()) {
             connectingWiFi = false;
             Display::showToast(WPASec::getLastError());
+            delay(500);
             return;
         }
         weConnected = true;
@@ -559,10 +563,12 @@ void CapturesMenu::uploadSelected() {
     
     if (success) {
         Display::showToast("Upload OK!");
+        delay(500);
         // Update status
         captures[selectedIndex].status = CaptureStatus::UPLOADED;
     } else {
         Display::showToast(WPASec::getLastError());
+        delay(500);
     }
     
     // Disconnect WiFi only if we initiated the connection
@@ -575,6 +581,7 @@ void CapturesMenu::refreshResults() {
     // Check if WPA-SEC key is configured
     if (Config::wifi().wpaSecKey.isEmpty()) {
         Display::showToast("Set WPA-SEC key first");
+        delay(500);
         return;
     }
     
@@ -588,6 +595,7 @@ void CapturesMenu::refreshResults() {
         if (!WPASec::connect()) {
             connectingWiFi = false;
             Display::showToast(WPASec::getLastError());
+            delay(500);
             return;
         }
         weConnected = true;
@@ -604,10 +612,12 @@ void CapturesMenu::refreshResults() {
     
     if (success) {
         Display::showToast(WPASec::getStatus());
+        delay(500);
         // Update status for all captures
         updateWPASecStatus();
     } else {
         Display::showToast(WPASec::getLastError());
+        delay(500);
     }
     
     // Disconnect WiFi only if we initiated the connection
