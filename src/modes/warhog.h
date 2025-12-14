@@ -32,8 +32,6 @@ public:
     
     // Export (data already on disk, these are for format info)
     static bool exportCSV(const char* path);
-    static bool exportKismet(const char* path);
-    static bool exportWigle(const char* path);
     static bool exportMLTraining(const char* path);
     
     // GPS

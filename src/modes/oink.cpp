@@ -10,7 +10,6 @@
 #include "../ui/swine_stats.h"
 #include <WiFi.h>
 #include <esp_wifi.h>
-#include <SPI.h>
 #include <SD.h>
 #include <algorithm>
 #include <cstdarg>  // For va_list in deferred logging

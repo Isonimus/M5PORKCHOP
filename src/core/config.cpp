@@ -3,7 +3,6 @@
 #include "config.h"
 #include <M5Cardputer.h>
 #include <SD.h>
-#include <SPI.h>
 #include <SPIFFS.h>
 
 // Static member initialization
@@ -124,8 +123,6 @@ bool Config::load() {
     if (doc["ble"].is<JsonObject>()) {
         bleConfig.burstInterval = doc["ble"]["burstInterval"] | 200;
         bleConfig.advDuration = doc["ble"]["advDuration"] | 100;
-        bleConfig.scanDuration = doc["ble"]["scanDuration"] | 3000;
-        bleConfig.rescanInterval = doc["ble"]["rescanInterval"] | 60;
     }
     
     Serial.println("[CONFIG] Loaded successfully");
@@ -234,8 +231,6 @@ bool Config::save() {
     // BLE config (PIGGY BLUES)
     doc["ble"]["burstInterval"] = bleConfig.burstInterval;
     doc["ble"]["advDuration"] = bleConfig.advDuration;
-    doc["ble"]["scanDuration"] = bleConfig.scanDuration;
-    doc["ble"]["rescanInterval"] = bleConfig.rescanInterval;
     
     File file = SD.open(CONFIG_FILE, FILE_WRITE);
     if (!file) {

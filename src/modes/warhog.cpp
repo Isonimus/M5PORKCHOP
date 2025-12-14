@@ -18,7 +18,6 @@
 #include "../ml/inference.h"
 #include <M5Cardputer.h>
 #include <WiFi.h>
-#include <SPI.h>
 #include <SD.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -738,18 +737,6 @@ static String escapeXML(const char* str) {
         }
     }
     return result;
-}
-
-bool WarhogMode::exportWigle(const char* path) {
-    // Would need to read CSV and convert - for now just log
-    Serial.printf("[WARHOG] Wigle export not implemented in refactored mode\n");
-    return false;
-}
-
-bool WarhogMode::exportKismet(const char* path) {
-    // Would need to read CSV and convert - for now just log
-    Serial.printf("[WARHOG] Kismet export not implemented in refactored mode\n");
-    return false;
 }
 
 bool WarhogMode::exportMLTraining(const char* path) {

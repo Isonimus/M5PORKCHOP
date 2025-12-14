@@ -257,15 +257,6 @@ void SettingsMenu::loadFromConfig() {
         50, 200, 25, "ms", "",
         "Per-packet duration"
     });
-    
-    // BLE Rescan Interval (seconds)
-    items.push_back({
-        "BLE Rescan",
-        SettingType::VALUE,
-        (int)Config::ble().rescanInterval,
-        30, 120, 15, "s", "",
-        "Target refresh rate"
-    });
     // No Save & Exit button - ESC/backtick auto-saves
 }
 
@@ -330,7 +321,6 @@ void SettingsMenu::saveToConfig() {
     auto& b = Config::ble();
     b.burstInterval = items[22].value;
     b.advDuration = items[23].value;
-    b.rescanInterval = items[24].value;
     Config::setBLE(b);
     
     // Save to file
