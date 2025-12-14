@@ -490,6 +490,36 @@
     If it doesn't compile, skill issue. Check your dependencies.
 
 
+----[ 5.1 - M5 Burner vs PlatformIO (READ THIS)
+
+    Your XP, level, and achievements live in NVS (Non-Volatile Storage)
+    at flash address 0x9000. Here's the cold hard truth:
+
+        +-------------------+-------------+----------------+
+        | Method            | XP/Level    | Settings       |
+        +-------------------+-------------+----------------+
+        | pio run -t upload | PRESERVED   | PRESERVED      |
+        | M5 Burner         | NUKED       | PRESERVED      |
+        +-------------------+-------------+----------------+
+
+    Why? The merged .bin for M5 Burner writes fill bytes from 0x0 to
+    0x10000, steamrolling NVS at 0x9000. Settings survive because they
+    live in SPIFFS at 0x610000 - way beyond the blast radius.
+
+    TRANSLATION:
+        - First time install via M5 Burner? You're good.
+        - Updating via M5 Burner? Say goodbye to your grind.
+        - Want to keep your MUDGE UNCHA1NED status? Use PlatformIO.
+
+    For the GitHub release binary:
+        - Fresh installs: porkchop_v0.x.x.bin at offset 0x0
+        - Upgrades: Clone repo, `pio run -t upload`, keep your XP
+
+    We could fix this with a multi-file flash, but M5 Burner wants
+    one file. If you're attached to your level, learn PlatformIO.
+    It's not that hard. Your pig will thank you.
+
+
 --[ 6 - Controls
 
     The M5Cardputer's keyboard is tiny but functional:
