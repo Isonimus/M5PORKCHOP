@@ -812,15 +812,17 @@ WPA*01*PMKID*MAC_AP*MAC_CLIENT*ESSID***01
 Toggle in Settings Menu enables passive-only mode with hardcoded optimal values:
 ```cpp
 const uint16_t DNH_HOP_INTERVAL = 150;     // 150ms = fast sweeps for mobile recon
-const size_t DNH_MAX_NETWORKS = 300;       // More networks for passive collecting
-const uint32_t DNH_STALE_TIMEOUT = 120000; // 2 minutes before network considered stale
+const size_t DNH_MAX_NETWORKS = 150;       // Limited to prevent OOM when walking
+const uint32_t DNH_STALE_TIMEOUT = 45000;  // 45s - faster cleanup when mobile
+const size_t HEAP_MIN_THRESHOLD = 30000;   // 30KB minimum free heap to add networks
 ```
 
 **Behavior when `Config::wifi().doNoHam` is true:**
 - State machine stays in `SCANNING` forever - never transitions to LOCKING/ATTACKING
 - Uses 150ms channel hop interval (vs buff-modified ~500ms in attack mode)
-- Network capacity increased to 300 (vs 200)
-- Stale timeout extended to 120s (vs 60s)
+- Network capacity limited to 150 (vs 200 in attack mode) to prevent OOM
+- Stale timeout reduced to 45s (vs 60s) for faster cleanup when walking
+- Heap check before network add - skips if <30KB free
 - MAC randomization always enabled (regardless of setting)
 - PMKID capture still works - M1 frames are passive catches
 - Calls `Mood::onPassiveRecon()` instead of `onSniffing()` for zen phrases

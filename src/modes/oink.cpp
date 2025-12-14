@@ -103,8 +103,9 @@ const size_t MAX_PMKIDS = 50;          // Max PMKIDs (smaller than handshakes)
 // DO NO HAM mode - hardcoded optimal values for passive recon
 // (not configurable - these are the best settings for fast walking)
 const uint16_t DNH_HOP_INTERVAL = 150;     // 150ms = fast sweeps for mobile recon
-const size_t DNH_MAX_NETWORKS = 300;       // More networks for passive collecting
-const uint32_t DNH_STALE_TIMEOUT = 120000; // 2 minutes before network considered stale
+const size_t DNH_MAX_NETWORKS = 150;       // Limited to prevent OOM when walking
+const uint32_t DNH_STALE_TIMEOUT = 45000;  // 45s - faster cleanup when mobile
+const size_t HEAP_MIN_THRESHOLD = 30000;   // 30KB minimum free heap to add networks
 
 // Deauth timing
 static uint32_t lastDeauthTime = 0;
@@ -304,7 +305,10 @@ void OinkMode::update() {
     
     // Process pending network add
     if (pendingNetworkAdd) {
-        networks.push_back(pendingNetwork);
+        // Check heap before allocating - skip if memory critically low
+        if (ESP.getFreeHeap() >= HEAP_MIN_THRESHOLD) {
+            networks.push_back(pendingNetwork);
+        }
         pendingNetworkAdd = false;
     }
     
@@ -958,6 +962,11 @@ void OinkMode::processBeacon(const uint8_t* payload, uint16_t len, int8_t rssi) 
         if (networks.size() >= maxNetworks) {
             // At capacity - skip adding new network (update() will clean stale ones)
             return;
+        }
+        
+        // Also check heap - ESP.getFreeHeap() is safe to call from callback
+        if (ESP.getFreeHeap() < HEAP_MIN_THRESHOLD) {
+            return;  // Memory critically low - skip network add
         }
         
         // DEFERRED: Queue network add for main thread (avoids vector realloc in callback)
