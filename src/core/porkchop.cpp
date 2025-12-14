@@ -384,14 +384,17 @@ void Porkchop::handleInput() {
         bool ePressed = M5Cardputer.Keyboard.isKeyPressed('e') || M5Cardputer.Keyboard.isKeyPressed('E');
         if (ePressed && !eWasPressed) {
             int idx = OinkMode::getSelectionIndex();
+            Serial.printf("[PORKCHOP] E pressed, selection idx=%d\n", idx);
             if (OinkMode::excludeNetwork(idx)) {
                 Display::showToast("BOAR BRO added!");
                 delay(500);  // Standard toast duration
                 // Move to next network after excluding current one
                 OinkMode::moveSelectionDown();
+                Serial.printf("[PORKCHOP] Moved to idx=%d\n", OinkMode::getSelectionIndex());
             } else {
                 Display::showToast("Already a bro");
                 delay(500);  // Standard toast duration
+                Serial.println("[PORKCHOP] Already a bro - not moving");
             }
         }
         eWasPressed = ePressed;

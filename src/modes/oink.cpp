@@ -2088,6 +2088,11 @@ bool OinkMode::loadBoarBros() {
 }
 
 bool OinkMode::saveBoarBros() {
+    // Delete existing file first to ensure clean overwrite (FILE_WRITE appends on ESP32)
+    if (SD.exists(BOAR_BROS_FILE)) {
+        SD.remove(BOAR_BROS_FILE);
+    }
+    
     File f = SD.open(BOAR_BROS_FILE, FILE_WRITE);
     if (!f) {
         Serial.println("[OINK] Failed to save BOAR BROS");
