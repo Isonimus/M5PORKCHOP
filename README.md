@@ -17,6 +17,7 @@
     2 - What the hell is this thing
     3 - Capabilities
         3.1 - OINK Mode
+            3.1.1 - DO NO HAM Mode
         3.2 - WARHOG Mode
         3.3 - PIGGY BLUES Mode
         3.4 - HOG ON SPECTRUM Mode
@@ -29,6 +30,7 @@
         3.11 - SWINE STATS (Buff System)
     4 - Hardware
     5 - Building & Flashing
+        5.1 - Flashing Methods & Progress Preservation
     6 - Controls
     7 - Configuration
     8 - ML Training Pipeline
@@ -586,17 +588,17 @@
 
     Top bar format:
 
-        [MODE]          HH:MM              XX% GWM
+        [MODE M00D]                       XX% GWM HH:MM
 
-    Left = current mode. Center = GPS time or --:-- if no fix.
-    Right = battery percent + status flags. G=GPS, W=WiFi, M=ML.
-    Dashes mean inactive.
+    Left = current mode + mood indicator (HYP3/GUD/0K/M3H/S4D).
+    Right = battery percent + status flags + GPS time (or --:--).
+    G=GPS, W=WiFi, M=ML. Dashes mean inactive.
 
     The piglet has moods. Watch the face change as it hunts:
 
         NEUTRAL     HAPPY       EXCITED     HUNTING     SLEEPY      SAD
-         ?  ?        ^  ^        !  !        /  \        v  v        .  .
-        (o 00)      (^ 00)      (@ 00)      (> 00)      (- 00)      (T 00)
+         ?  ?        ^  ^        !  !        |  |        v  v        .  .
+        (o 00)      (^ 00)      (@ 00)      (= 00)      (- 00)      (T 00)
         (    )      (    )      (    )      (    )      (    )      (    )
 
     Yes, we spent actual development time on pig facial expressions.
@@ -608,13 +610,13 @@
     Press O and let the piglet loose. Here's the hunting grounds:
 
         +----------------------------------------------+
-        | [OINK]          --:--              85% GWM   |  <- Top Bar
+        | [OINK GUD]                   85% GWM --:--   |  <- Top Bar
         +----------------------------------------------+
         |                                              |
-        |       /  \      .------------------------.   |
-        |      (> 00)  < | hunting truffles        |   |  <- Avatar + Bubble
+        |       |  |      .------------------------.   |
+        |      (= 00)  < | hunting truffles        |   |  <- Avatar + Bubble
         |      (    )     `------------------------'   |
-        |    1010110110                                |  <- Binary grass
+        |    /\/\/\/\/\                                |  <- Grass animation
         |                                              |
         +----------------------------------------------+
         | N:42 HS:3 D:127 CH:6                    1:23 |  <- Stats + Uptime
@@ -639,24 +641,25 @@
     GPS + WiFi = tactical recon. Hook up that GPS and hit the road:
 
         +----------------------------------------------+
-        | [WARHOG]        12:45              85% GWM   |  <- Top Bar
+        | [WARHOG HYP3]                85% GWM 12:45   |  <- Top Bar
         +----------------------------------------------+
         |                                              |
         |       !  !      .------------------------.   |
         |      (@ 00)  < | hog on patrol           |   |  <- Avatar + Bubble
         |      (    )     `------------------------'   |
-        |    1110100111                                |  <- Binary grass
+        |    /\\/\\/\\/\\/\\                                |  <- Grass animation
         |                                              |
         +----------------------------------------------+
-        | U:128 S:45 [42.36,-71.05] S:7          12:45 |  <- Stats + Uptime
+        | U:128 S:45 D:1.2km [42.36,-71.05]      12:45 |  <- Stats + Uptime
         +----------------------------------------------+
 
     Bottom bar - the wardriving scoreboard:
 
         U:128           = 128 unique APs mapped. New territory.
         S:45            = 45 entries written to SD. Receipts.
-        [42.36,-71.05]  = You are here. Lat,lon.
-        S:7             = 7 birds in the sky tracking you back.
+        D:1.2km         = Distance walked this session.
+        [42.36,-71.05]  = You are here. Lat,lon (with GPS fix).
+        GPS:Xsat        = Satellite count (when no fix).
         12:45           = Time on the hunt.
 
     The grass is your GPS indicator. Moving grass = fix acquired,
@@ -689,6 +692,7 @@
         | Lock Time  | Client discovery window       | 3000ms  |
         | Deauth     | Enable deauth attacks         | ON      |
         | Rnd MAC    | Randomize MAC on mode start   | ON      |
+        | DO NO HAM  | Passive-only recon mode       | OFF     |
         | GPS        | Enable GPS module             | ON      |
         | GPS PwrSave| Sleep GPS when not hunting    | ON      |
         | Scan Intv  | WARHOG scan frequency         | 5s      |
