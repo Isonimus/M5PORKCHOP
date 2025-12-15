@@ -11,6 +11,42 @@
                                   ░                                  
 ```
 
+--[ Quick Start - Get the pig running
+
+    Releases: https://github.com/neledov/M5PORKCHOP/releases
+
+    FIRST TIME INSTALL (M5 Burner):
+    
+        1. Download porkchop_vX.X.X.bin from releases
+        2. Open M5 Burner, select your COM port
+        3. Click "Burn" and select the .bin file
+        4. Burn at 0x0 offset (default)
+        5. Wait for completion, reboot, oink
+
+    M5 BURNER GOTCHAS:
+    
+        * "Burn" button, not "Download" - Download is for fetching
+          from M5's catalog, not for local files
+        * If Burn greyed out: close/reopen M5 Burner, reconnect USB
+        * COM port not showing? Install CP210x drivers from Silicon Labs
+        * Stuck at "Connecting..."? Hold G0 button while clicking Burn
+        * Still stuck? Try different USB cable (data cable, not charge-only)
+
+    ALTERNATIVE - ESP Web Tool (no install):
+    
+        1. Go to https://espressif.github.io/esptool-js/
+        2. Connect Cardputer via USB
+        3. Click Connect, select COM port
+        4. Add file: porkchop_vX.X.X.bin at offset 0x0
+        5. Click Program, wait, done
+
+    UPGRADING (preserve your XP):
+    
+        Use firmware.bin (not the merged one) at offset 0x10000.
+        M5 Burner merged .bin nukes NVS at 0x9000 = your grind is gone.
+        See section 5.1 for the full explanation.
+
+
 --[ Contents
 
     1 - Introduction
