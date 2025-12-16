@@ -19,7 +19,7 @@
     
         1. Already got M5 Launcher? Good. Skip to step 3.
         2. No Launcher? Flash it once via M5 Burner. One time. Never again.
-        3. Grab firmware.bin: github.com/neledov/M5PORKCHOP/releases
+        3. Grab firmware.bin: github.com/0ct0sec/M5PORKCHOP/releases
         4. Drop on SD card. Launcher -> SD -> install.
         5. Oink.
     

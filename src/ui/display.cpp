@@ -862,7 +862,7 @@ void Display::drawAboutScreen(M5Canvas& canvas) {
     canvas.drawString("by 0ct0", DISPLAY_W / 2, 38);
     
     // GitHub (single line)
-    canvas.drawString("github.com/neledov/M5PORKCHOP", DISPLAY_W / 2, 50);
+    canvas.drawString("github.com/0ct0sec/M5PORKCHOP", DISPLAY_W / 2, 50);
     
     // Build date
     canvas.setTextColor(COLOR_ACCENT);

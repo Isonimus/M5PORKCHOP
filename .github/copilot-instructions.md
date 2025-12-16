@@ -478,7 +478,7 @@ Missing `-lgcov` causes `undefined reference to '__gcov_init'` linker errors.
 
 **6. CI-Only Testing (Windows)**
 Tests only run in GitHub Actions CI (Ubuntu). Do NOT attempt `pio test -e native` on Windows.
-Push and monitor CI runs at: https://github.com/neledov/M5PORKCHOP/actions
+Push and monitor CI runs at: https://github.com/0ct0sec/M5PORKCHOP/actions
 
 ### Hardware Testing
 For features that can't be unit tested:

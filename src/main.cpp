@@ -1,6 +1,6 @@
 // Porkchop - ML-Enhanced Piglet Security Companion
 // Main entry point
-// Author: Anton Neledov
+// Author: 0ct0sec
 
 #include <M5Cardputer.h>
 #include <M5Unified.h>
