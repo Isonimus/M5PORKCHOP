@@ -137,6 +137,10 @@ void WiGLE::markUploaded(const char* filename) {
     for (const auto& uploaded : uploadedFiles) {
         if (uploaded == name) return;
     }
+    // Cap at 200 entries to prevent unbounded memory growth
+    if (uploadedFiles.size() >= 200) {
+        uploadedFiles.erase(uploadedFiles.begin());  // Remove oldest
+    }
     uploadedFiles.push_back(name);
     saveUploadedList();
 }
@@ -274,11 +278,8 @@ bool WiGLE::uploadFile(const char* csvPath) {
         if (line == "\r" || line.isEmpty()) break;
     }
     
-    // Read body (JSON response)
-    String body = "";
-    while (client.available()) {
-        body += (char)client.read();
-    }
+    // Read body (JSON response) - use readString for efficiency
+    String body = client.readString();
     client.stop();
     
     Serial.printf("[WIGLE] Body: %s\n", body.c_str());

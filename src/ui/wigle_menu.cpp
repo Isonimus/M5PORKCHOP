@@ -37,6 +37,8 @@ void WigleMenu::show() {
 void WigleMenu::hide() {
     active = false;
     detailViewActive = false;
+    files.clear();  // Release memory when not in menu
+    files.shrink_to_fit();
 }
 
 void WigleMenu::scanFiles() {
