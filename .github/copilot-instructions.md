@@ -27,6 +27,36 @@ README and user-facing docs use oldschool Phrack hacker magazine style:
 - Snarky comments in parentheses are encouraged
 - End with `==[EOF]==`
 
+## Git Commit Style
+
+Commit messages MUST be in full Phrack mode:
+- Self-deprecating humor about the bugs being fixed
+- Snarky commentary on what went wrong
+- No corporate changelog speak ("Updated X", "Fixed Y")
+- Multi-line commits encouraged for maximum flavor
+- Examples of good commits:
+  ```
+  docs: README audit - pig learns to count
+  
+  - achievements: 47 -> 60 (we added 13 and forgot math exists)
+  - lock time: 3000ms -> 4000ms (section 7 was lying)
+  - section 3.10.2 -> 3.11.2 (numbers go UP not DOWN)
+  
+  the documentation now matches reality. briefly.
+  ```
+  ```
+  fix: XP events that existed but never fired
+  
+  - WARHOG_LOGGED: defined in enum, never called (oops)
+  - BLE vendor XP: counters incremented, XP forgotten
+  - SPECTRUM mode: zero XP integration (the pig worked for free)
+  
+  somewhere a stats page is finally accurate.
+  ```
+- Lowercase subject line, no period at end
+- Body can roast the code, the author, or the universe
+- The pig judges silently from the commit history
+
 ## Code Style Guidelines
 
 1. **No emojis** - Do not use emojis in code, comments, documentation, or UI strings
