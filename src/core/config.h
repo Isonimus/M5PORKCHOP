@@ -41,7 +41,6 @@ struct MLConfig {
 struct WiFiConfig {
     uint16_t channelHopInterval = 500;
     uint16_t lockTime = 4000;           // Time to discover clients before attacking (ms)
-    uint16_t maxNetworks = 50;
     bool enableDeauth = true;
     bool randomizeMAC = true;           // Randomize MAC on mode start for stealth
     bool doNoHam = false;               // Passive recon mode - no attacks, fast scanning

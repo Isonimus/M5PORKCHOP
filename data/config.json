@@ -11,7 +11,6 @@
   "wifi": {
     "channelHopInterval": 500,
     "scanDuration": 2000,
-    "maxNetworks": 50,
     "enableDeauth": false
   },
   "ml": {
