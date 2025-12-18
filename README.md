@@ -26,12 +26,18 @@
     Updates? Same thing. Download new firmware.bin, SD card, install.
     XP preserved forever. Your MUDGE UNCHA1NED grind stays intact.
     
+    NEW IN v0.1.6: IMMORTAL PIG. XP now backs up to SD card. M5 Burner
+    nukes your flash? Pig recovers from SD. Full chip erase? Pig recovers.
+    BUT - you must install v0.1.6 via Launcher FIRST to create the backup.
+    After that, flash however you want. Burner, web, carrier pigeon.
+
     M5 Burner OTA? Don't. Wrong binary format. Bootloop city.
                    (recoverable via USB reflash, but why bother)
-    M5 Burner USB? Works for fresh install but nukes NVS on updates.
-                   Say goodbye to your level 38.
+    M5 Burner USB? Works for fresh install. v0.1.6+ recovers XP from SD.
+                   Just make sure SD card is in before first boot.
     
     The pig remembers those who respect the partition table.
+    Now the pig also remembers those who don't. (SD backup FTW)
 
 
 --[ Contents
@@ -45,11 +51,13 @@
         3.2 - WARHOG Mode
         3.3 - PIGGY BLUES Mode
         3.4 - HOG ON SPECTRUM Mode
+            3.4.1 - CLIENT MONITOR
         3.5 - File Transfer Mode
         3.6 - LOOT Menu & WPA-SEC Integration
         3.7 - Machine Learning
         3.8 - Enhanced ML Mode
         3.9 - XP System
+            3.9.1 - IMMORTAL PIG (XP Persistence)
         3.10 - Achievements
         3.11 - SWINE STATS (Buff System)
     4 - Hardware
@@ -118,7 +126,7 @@
         * 4-way handshake reconstruction - we catch 'em, we stitch 'em
         * PMKID yoink from M1 frames - clientless attack, pure stealth
         * Smart filtering - empty PMKIDs get yeeted (they're useless cruft)
-        * Deauth capability - for "authorized penetration testing" wink wink
+        * Deauth + Disassoc - broadcast both frame types per cycle
         * ML classification - spot rogue APs before they spot you
         * Auto-attack - cycles through targets like a rotisserie of pain
         * Targeted deauth - discovered clients get personal attention
@@ -395,8 +403,74 @@
 
     Scroll through networks to find the interesting ones. Hit Enter to
     enter CLIENT MONITOR for focused hunting - see connected clients
-    with proximity arrows and vendor OUI identification. Press D to
-    deauth selected clients directly. Backspace or G0 to bail. Simple as.
+    with proximity arrows and vendor OUI identification. Press Enter on
+    a client to deauth them directly. Backspace or G0 to bail. Simple as.
+
+
+------[ 3.4.1 - CLIENT MONITOR
+
+    The spectrum got fangs. Press Enter on any network to enter the hunt.
+
+    What you see:
+
+        +------------------------------------------+
+        | CLIENTS: COFFEESHOP_5G CH6               |
+        +------------------------------------------+
+        | 1.Apple    A3:F2 -55dB  3s >>            |
+        | 2.Samsung  B1:C4 -68dB  1s >             |
+        | 3.Random   D5:E6 -72dB  2s ==            |
+        | 4.Xiaomi   F7:89 -85dB  4s <<            |
+        +------------------------------------------+
+
+    That's clients connected to the target network. Real-time. Updating
+    every frame. The pig sees everything the router sees.
+
+    Breakdown:
+
+        * Client number + vendor (450+ OUI database, or "Random" if
+          MAC randomization is detected - local-admin bit check)
+        * Last two MAC octets (enough to identify when hunting)
+        * Signal strength in dBm (how close to YOU, not the router)
+        * Time since last packet (freshness - stale = walking away)
+        * Proximity arrows (the money feature)
+
+    The arrows tell you everything:
+
+        >>  = Much closer to you than the router (+10dB or more)
+        >   = Closer to you (+3 to +10dB)
+        ==  = About the same distance (-3 to +3dB)
+        <   = Farther from you (-3 to -10dB)
+        <<  = Much farther than the router (-10dB or more)
+
+    Walk around. Watch the arrows change. When >> appears, you're
+    getting hot. When << appears, wrong direction. Marco Polo for WiFi.
+    Less fun for the target.
+
+    Controls:
+
+        [;]     Navigate up through client list
+        [.]     Navigate down through client list
+        [Enter] DEAUTH selected client (5 frames each way)
+        [B]     Add network to BOAR BROS and exit
+        [`]     Exit to spectrum view
+        [Bksp]  Exit to spectrum view
+
+    Press Enter on a client. 5 deauth frames AP→Client. 5 more Client→AP.
+    1-5ms random jitter between each. Brief toast: "DEAUTH XX:XX x5".
+    Spam Enter for continuous deauth. ~300ms keyboard debounce = fire rate.
+
+    Signal loss detection: no packets for 15 seconds = graceful exit.
+    Descending beep. "SIGNAL LOST" toast. Back to spectrum view.
+    No hanging. No stale data. Clean exit. Professional.
+
+    Sound feedback (if enabled in Settings):
+
+        * Enter client monitor: 700Hz 80ms (channel locked)
+        * New client detected: 1200Hz 100ms (fresh meat)
+        * Deauth sent: 600Hz 80ms (low thump)
+        * Signal lost: 800→500Hz descending (exit)
+
+    First 4 clients get beeps. After that, quiet. We're hunting, not DJing.
 
 
 ----[ 3.5 - File Transfer Mode
@@ -606,6 +680,41 @@
     ready to lose your progress.
 
 
+------[ 3.9.1 - IMMORTAL PIG (XP Persistence)
+
+    NVS lives at 0x9000. M5 Burner writes start at 0x0. You see the
+    problem. Your L38 DARK TANGENT grind? Steamrolled. BACON N00B.
+
+    Not anymore.
+
+    v0.1.6 introduced SD card XP backup. Automatic. Every save.
+    M5 Burner nukes your flash? Pig recovers from SD on boot.
+    Full chip erase? Pig recovers. Factory reset? Pig. Recovers.
+
+        NVS = Primary storage (fast, survives firmware updates)
+        SD  = Backup storage (survives everything else)
+
+    The catch: backup is device-bound and signed.
+
+        +-----------------------------------+--------------------+
+        | Action                            | Result             |
+        +-----------------------------------+--------------------+
+        | Edit XP values in hex editor      | Signature invalid  |
+        | Copy save to different device     | Signature invalid  |
+        | Download someone's save file      | Signature invalid  |
+        | Corrupt the file                  | Validation fails   |
+        | Use legitimately on your device   | Welcome back       |
+        +-----------------------------------+--------------------+
+
+    Want to tamper? Go ahead. It's a hacker tool. Source is public.
+    Figure it out. We respect the attempt. But if you fail - LV1.
+    BACON N00B. No exceptions. Earn your rank or crack the signature.
+
+    File location: /xp_backup.bin on SD card root.
+    Size: 100 bytes (96-byte struct + 4-byte CRC32 signature).
+    Device binding: ESP32 MAC address baked into signature.
+
+
 ----[ 3.10 - Achievements
 
     63 secret badges to prove you're not just grinding mindlessly.
@@ -761,12 +870,16 @@
         | M5 Launcher (SD card)     | PRESERVED   | PRESERVED      |
         | pio run -t upload         | PRESERVED   | PRESERVED      |
         | ESP Web Tool (firmware)   | PRESERVED   | PRESERVED      |
-        | M5 Burner (merged bin)    | NUKED       | PRESERVED      |
+        | M5 Burner (merged bin)    | RECOVERED*  | PRESERVED      |
         +---------------------------+-------------+----------------+
+        * v0.1.6+ recovers XP from SD card backup if available
 
-    Why the nuke? The merged .bin for M5 Burner writes fill bytes from
-    0x0 to 0x10000, steamrolling NVS at 0x9000. Settings survive because
-    they live in SPIFFS at 0x610000 - way beyond the blast radius.
+    Why the recovery? The merged .bin for M5 Burner writes fill bytes
+    from 0x0 to 0x10000, steamrolling NVS at 0x9000. But v0.1.6 checks
+    for /xp_backup.bin on SD at boot. If NVS is empty but SD backup
+    exists with valid signature = welcome back, warrior.
+
+    Settings survive regardless - they live in SPIFFS at 0x610000.
 
 
 ------[ 5.1.1 - The Right Way (M5 Launcher)
@@ -795,16 +908,17 @@
         - Connect, add firmware.bin at offset 0x10000
         - Flash ONLY firmware, NVS stays safe
 
-    M5 Burner USB (fresh install only):
-        - Flash the merged bin (porkchop_vX.X.X.bin)
-        - Works but nukes XP on every flash
-        - Fine for first time, terrible for updates
-        - NOTE: We removed PORKCHOP from M5 Burner's catalog
-          due to format issues. Download from GitHub releases.
+    M5 Burner USB (v0.1.6+ with IMMORTAL PIG):
+        - Flash the merged bin (porkchop_vX.X.X_m5burner.bin)
+        - NVS gets nuked BUT pig recovers from SD backup
+        - REQUIREMENT: Must have run v0.1.6+ at least once before
+          to create the SD backup. No backup = BACON N00B.
+        - NOTE: We removed PORKCHOP from M5 Burner's catalog.
+          Download from GitHub releases.
 
     We provide both binaries in releases:
-        - firmware.bin            = SD card / Launcher, preserves XP
-        - porkchop_v0.x.x.bin     = M5 Burner USB only, nukes XP
+        - firmware_vX.X.X.bin          = M5 Launcher, preserves XP
+        - porkchop_vX.X.X_m5burner.bin = M5 Burner, recovers from SD
 
 
 --[ 6 - Controls
@@ -823,7 +937,7 @@
         | T     | Tweak settings                   |
         | D     | Toggle DO NO HAM (in OINK mode)  |
         | P     | Screenshot - save to SD card     |
-        | `     | Toggle menu / Go back            |
+        | `     | Back one level / Open menu       |
         | ;     | Navigate up / Scroll left        |
         | .     | Navigate down / Scroll right     |
         | Enter | Select / Toggle / Confirm        |
@@ -834,6 +948,15 @@
     G0 is the physical button on the top side of the M5Cardputer.
     Press it anytime to bail out and return to IDLE. Useful when
     your piglet is going ham on someone's network.
+
+    Backtick navigation (v0.1.6+):
+
+        From OINK/WARHOG/PIGGYBLUES/SPECTRUM -> IDLE
+        From Client Monitor                  -> Spectrum view
+        From IDLE                            -> Opens MENU
+        From MENU/Settings                   -> Parent menu
+
+    Intuitive. Only took six versions.
 
     Screenshots are saved to /screenshots/screenshotNNN.bmp on the SD
     card. Takes about 1.4 seconds - piggy freezes briefly. Worth it
@@ -862,6 +985,10 @@
 
     Yes, we spent actual development time on pig facial expressions.
     No regrets.
+
+    Network names display in UPPERCASE (v0.1.6+) for visibility on the
+    tiny 240x135 screen. File exports keep original case. Settings menu
+    stays lowercase - you need the mental workout when configuring.
 
 
 --[ 7 - Configuration

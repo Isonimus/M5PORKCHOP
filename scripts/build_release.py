@@ -81,8 +81,8 @@ def get_version():
     with open(ini_path, "r") as f:
         content = f.read()
     
-    # Look for custom_version = X.X.X
-    match = re.search(r'custom_version\s*=\s*(\d+\.\d+\.\d+)', content)
+    # Look for custom_version = X.X.X or X.X.X_suffix
+    match = re.search(r'custom_version\s*=\s*([\d.]+[\w_]*)', content)
     if match:
         return match.group(1)
     

@@ -7,6 +7,7 @@
 // - Per-network file writes instead of batch saves
 
 #include "warhog.h"
+#include "../build_info.h"
 #include "../core/config.h"
 #include "../core/wsl_bypasser.h"
 #include "../core/sdlog.h"
@@ -634,8 +635,8 @@ bool WarhogMode::ensureWigleFileReady() {
     
     // WiGLE format v1.6 pre-header
     f.print("WigleWifi-1.6,appRelease=");
-    #ifdef CURRENT_VERSION
-    f.print(CURRENT_VERSION);
+    #ifdef BUILD_VERSION
+    f.print(BUILD_VERSION);
     #else
     f.print("0.1.x");
     #endif
