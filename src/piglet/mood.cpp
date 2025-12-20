@@ -673,7 +673,7 @@ void Mood::onPMKIDCaptured(const char* apName) {
     
     // Award XP for PMKID capture
     // If in DO NO HAM mode, award the rare ghost PMKID XP (100 XP!)
-    if (Config::wifi().doNoHam) {
+    if (porkchop.getMode() == PorkchopMode::DNH_MODE) {
         XP::addXP(XPEvent::DNH_PMKID_GHOST);  // Rare passive PMKID!
     } else {
         XP::addXP(XPEvent::PMKID_CAPTURED);   // Regular 75 XP
@@ -731,8 +731,8 @@ void Mood::onNewNetwork(const char* apName, int8_t rssi, uint8_t channel) {
     Avatar::sniff();
     
     // Award XP for network discovery
-    // Check if in DO NO HAM passive mode for different XP event
-    bool isPassive = Config::wifi().doNoHam;
+    // Check if in DO NO HAM mode for different XP event
+    bool isPassive = (porkchop.getMode() == PorkchopMode::DNH_MODE);
     
     if (apName && strlen(apName) > 0) {
         if (isPassive) {

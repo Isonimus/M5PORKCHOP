@@ -166,8 +166,7 @@ void DoNoHamMode::startSeamless() {
     
     running = true;
     
-    // UI feedback
-    Display::showToast("BRAVO 6, GOING DARK");
+    // UI feedback (toast already shown by D key handler in porkchop.cpp)
     Avatar::setState(AvatarState::NEUTRAL);  // Calm, passive state
     Mood::onPassiveRecon(networks.size(), currentChannel);
 }

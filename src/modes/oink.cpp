@@ -23,6 +23,9 @@
 // synchronization to prevent race conditions on networks/handshakes vectors
 static volatile bool oinkBusy = false;
 
+// Minimum free heap to allow network additions (30KB safety margin)
+static const size_t HEAP_MIN_THRESHOLD = 30000;
+
 // ============ Deferred Event System ============
 // Callback sets flags/data, update() processes them in main thread context
 // This avoids heap operations, String allocations, and Serial.printf in callback
@@ -71,14 +74,6 @@ struct PendingPMKIDCreate {
 static volatile bool pendingPMKIDCreateBusy = false;
 static volatile bool pendingPMKIDCreateReady = false;
 static PendingPMKIDCreate pendingPMKIDCreate;
-
-// PMKID dwell mechanism - pause hopping to catch beacon for SSID
-// When PMKID is captured without SSID, we need to wait for the beacon
-// Beacons arrive every ~100ms, so 300ms dwell catches 2-3 beacon intervals
-static volatile bool pmkidNeedsSSID = false;
-static uint8_t pmkidDwellBSSID[6] = {0};
-static uint32_t pmkidDwellStartTime = 0;
-static const uint32_t PMKID_DWELL_TIME_MS = 300;
 
 // Pending log messages (simple ring buffer for debug output)
 #define PENDING_LOG_SIZE 4
@@ -143,13 +138,6 @@ const size_t MAX_NETWORKS = 200;       // Max tracked networks
 const size_t MAX_HANDSHAKES = 50;      // Max handshakes (each can be large)
 const size_t MAX_PMKIDS = 50;          // Max PMKIDs (smaller than handshakes)
 
-// OINK passive mode (D key toggle) - hardcoded optimal values for passive recon
-// (not configurable - these are the best settings for fast walking)
-const uint16_t OINK_PASSIVE_HOP_INTERVAL = 150;     // 150ms = fast sweeps for mobile recon
-const size_t OINK_PASSIVE_MAX_NETWORKS = 150;       // Limited to prevent OOM when walking
-const uint32_t OINK_PASSIVE_STALE_TIMEOUT = 45000;  // 45s - faster cleanup when mobile
-const size_t HEAP_MIN_THRESHOLD = 30000;   // 30KB minimum free heap to add networks
-
 // Deauth timing
 static uint32_t lastDeauthTime = 0;
 static uint32_t lastMoodUpdate = 0;
@@ -204,11 +192,6 @@ void OinkMode::init() {
     pendingLogHead = 0;
     pendingLogTail = 0;
     
-    // Reset PMKID dwell mechanism
-    pmkidNeedsSSID = false;
-    memset(pmkidDwellBSSID, 0, 6);
-    pmkidDwellStartTime = 0;
-    
     // Reset bored state tracking
     consecutiveFailedScans = 0;
     lastBoredUpdate = 0;
@@ -259,8 +242,7 @@ void OinkMode::init() {
 void OinkMode::start() {
     if (running) return;
     
-    bool doNoHam = Config::wifi().doNoHam;
-    Serial.printf("[OINK] Starting %s...\n", doNoHam ? "DO NO HAM (passive recon)" : "auto-attack mode (like M5Gotchi)");
+    Serial.println("[OINK] Starting auto-attack mode...");
     
     // Initialize WSL bypasser for deauth frame injection
     WSLBypasser::init();
@@ -268,8 +250,8 @@ void OinkMode::start() {
     // Initialize WiFi in promiscuous mode
     WiFi.mode(WIFI_STA);
     
-    // Randomize MAC if enabled (stealth) - ALWAYS ON in DO NO HAM mode
-    if (Config::wifi().randomizeMAC || doNoHam) {
+    // Randomize MAC if enabled (stealth)
+    if (Config::wifi().randomizeMAC) {
         WSLBypasser::randomizeMAC();
     }
     
@@ -297,15 +279,6 @@ void OinkMode::start() {
     autoState = AutoState::SCANNING;
     stateStartTime = millis();
     selectionIndex = 0;
-    
-    // If entering OINK with DO NO HAM already enabled, set passive time start
-    // (D-key handler only sets this on toggle, not on mode entry)
-    if (doNoHam) {
-        SessionStats& sess = const_cast<SessionStats&>(XP::getSession());
-        if (sess.passiveTimeStart == 0) {
-            sess.passiveTimeStart = millis();
-        }
-    }
     
     Mood::setStatusMessage("hunting truffles");
     Display::setWiFiStatus(true);
@@ -348,6 +321,51 @@ void OinkMode::stop() {
     Display::setWiFiStatus(false);
 }
 
+void OinkMode::startSeamless() {
+    if (running) return;
+    
+    Serial.println("[OINK] Seamless start (preserving WiFi state)");
+    
+    // DON'T reinit WiFi - promiscuous mode already running from DNH
+    // DON'T clear vectors - let old data age out naturally
+    // DON'T reset channel - preserve current
+    
+    running = true;
+    scanning = true;
+    channelHopping = true;
+    lastHopTime = millis();
+    lastScanTime = millis();
+    
+    // Resume auto-attack state machine
+    autoState = AutoState::SCANNING;
+    stateStartTime = millis();
+    
+    // Set grass animation speed for OINK mode
+    Avatar::setGrassSpeed(120);  // ~8 FPS casual trot
+    
+    // Toast already shown by D key handler in porkchop.cpp
+    Avatar::setState(AvatarState::HUNTING);
+    Mood::setStatusMessage("hunting truffles");
+    Display::setWiFiStatus(true);
+}
+
+void OinkMode::stopSeamless() {
+    if (!running) return;
+    
+    Serial.println("[OINK] Seamless stop (preserving WiFi state)");
+    
+    running = false;
+    deauthing = false;
+    scanning = false;
+    
+    // DON'T disable promiscuous mode - DNH will take over
+    // DON'T clear vectors - let them die naturally
+    // DON'T free beacon frames - keep them for continuity
+    
+    // Stop grass animation
+    Avatar::setGrassMoving(false);
+}
+
 void OinkMode::update() {
     if (!running) return;
     
@@ -375,11 +393,6 @@ void OinkMode::update() {
                         strncpy(p.ssid, pendingNetwork.ssid, 32);
                         p.ssid[32] = 0;
                         Serial.printf("[OINK] PMKID SSID backfill (deferred): %s\n", p.ssid);
-                        // Clear dwell flag if this was the BSSID we were waiting for
-                        if (pmkidNeedsSSID && memcmp(pmkidDwellBSSID, pendingNetwork.bssid, 6) == 0) {
-                            pmkidNeedsSSID = false;
-                            Serial.println("[OINK] PMKID dwell complete - beacon caught");
-                        }
                     }
                 }
             }
@@ -487,16 +500,8 @@ void OinkMode::update() {
     }
     
     // Process pending PMKID creation (callback queued, we do push_back here)
-    // HYBRID FIX: If pmkidNeedsSSID is set, wait for dwell to complete (beacon arrival)
-    // before processing. This gives the beacon time to arrive and populate networks.
-    bool dwellComplete = !pmkidNeedsSSID || (millis() - pmkidDwellStartTime >= PMKID_DWELL_TIME_MS);
-    if (pendingPMKIDCreateReady && !pendingPMKIDCreateBusy && dwellComplete) {
+    if (pendingPMKIDCreateReady && !pendingPMKIDCreateBusy) {
         pendingPMKIDCreateBusy = true;  // Prevent callback from overwriting
-        if (pmkidNeedsSSID) {
-            // Dwell timeout reached without beacon - log it
-            Serial.println("[OINK] PMKID dwell timeout - processing without beacon");
-        }
-        pmkidNeedsSSID = false;  // Clear dwell flag now that we're processing
         
         // Create PMKID entry in main thread context
         int idx = findOrCreatePMKIDSafe(pendingPMKIDCreate.bssid, pendingPMKIDCreate.station);
@@ -504,18 +509,17 @@ void OinkMode::update() {
             memcpy(pmkids[idx].pmkid, pendingPMKIDCreate.pmkid, 16);
             pmkids[idx].timestamp = millis();
             
-            // SSID lookup: try callback value first, then re-lookup from networks
-            // In passive mode, beacon may have arrived after M1, so re-check networks
+            // SSID lookup: try callback value first, then lookup from networks
             if (pendingPMKIDCreate.ssid[0] != 0) {
                 strncpy(pmkids[idx].ssid, pendingPMKIDCreate.ssid, 32);
                 pmkids[idx].ssid[32] = 0;
             } else {
-                // Re-lookup SSID from networks (may have arrived via dwell)
+                // Try to find SSID from networks vector
                 for (const auto& net : networks) {
                     if (memcmp(net.bssid, pendingPMKIDCreate.bssid, 6) == 0) {
                         strncpy(pmkids[idx].ssid, net.ssid, 32);
                         pmkids[idx].ssid[32] = 0;
-                        Serial.printf("[OINK] PMKID SSID backfilled from dwell: %s\n", net.ssid);
+                        Serial.printf("[OINK] PMKID SSID backfilled: %s\n", net.ssid);
                         break;
                     }
                 }
@@ -533,18 +537,6 @@ void OinkMode::update() {
     // This minimizes packet drop window from ~10ms to ~0.5ms
     oinkBusy = false;
     
-    // DO NO HAM: Immediately abort any active attack if passive mode is enabled
-    // This ensures toggling D key stops attacks right away, not after current cycle
-    if (Config::wifi().doNoHam && autoState != AutoState::SCANNING && autoState != AutoState::BORED) {
-        Serial.println("[OINK] DO NO HAM enabled - aborting attack, returning to passive scan");
-        autoState = AutoState::SCANNING;
-        stateStartTime = now;
-        deauthing = false;
-        channelHopping = true;
-        targetIndex = -1;
-        memset(targetBssid, 0, 6);
-    }
-    
     // Sync grass animation with channel hopping state
     Avatar::setGrassMoving(channelHopping);
     
@@ -552,22 +544,10 @@ void OinkMode::update() {
     switch (autoState) {
         case AutoState::SCANNING:
             {
-                bool doNoHam = Config::wifi().doNoHam;
-                uint16_t hopInterval = doNoHam ? OINK_PASSIVE_HOP_INTERVAL : SwineStats::getChannelHopInterval();
+                uint16_t hopInterval = SwineStats::getChannelHopInterval();
                 
-                // Check if dwelling on channel to catch beacon for PMKID SSID
-                bool dwelling = false;
-                if (pmkidNeedsSSID && doNoHam) {
-                    if (now - pmkidDwellStartTime < PMKID_DWELL_TIME_MS) {
-                        dwelling = true;  // Stay on channel for beacon
-                    }
-                    // NOTE: Timeout handling is done in deferred processing above (line ~490)
-                    // which clears pmkidNeedsSSID when dwellComplete and processes the PMKID
-                }
-                
-                // Channel hopping during scan (buff-modified interval, or fast DNH interval)
-                // Skip hop if dwelling to catch a beacon
-                if (!dwelling && now - lastHopTime > hopInterval) {
+                // Channel hopping during scan (buff-modified interval)
+                if (now - lastHopTime > hopInterval) {
                     hopChannel();
                     lastHopTime = now;
                 }
@@ -583,28 +563,8 @@ void OinkMode::update() {
                 
                 // Update mood
                 if (now - lastMoodUpdate > 3000) {
-                    if (doNoHam) {
-                        Mood::onPassiveRecon(networks.size(), currentChannel);
-                    } else {
-                        Mood::onSniffing(networks.size(), currentChannel);
-                    }
+                    Mood::onSniffing(networks.size(), currentChannel);
                     lastMoodUpdate = now;
-                }
-                
-                // DO NO HAM mode: Stay in SCANNING forever, never attack
-                if (doNoHam) {
-                    // Just keep scanning - no state transitions to attack
-                    // PMKID capture still works passively from M1 frames
-                    
-                    // HYBRID FIX Layer 3: Periodic PMKID backfill and save
-                    // Every 2 seconds, try to backfill SSIDs and save PMKIDs
-                    // This catches any PMKIDs that slipped through the dwell mechanism
-                    static uint32_t lastPMKIDBackfill = 0;
-                    if (now - lastPMKIDBackfill > 2000 && !pmkids.empty()) {
-                        saveAllPMKIDs();  // Has SSID backfill built in
-                        lastPMKIDBackfill = now;
-                    }
-                    break;
                 }
                 
                 // After scan time, sort and pick target
@@ -868,7 +828,7 @@ void OinkMode::update() {
     // Brief lock for vector erase operations
     if (now - lastScanTime > 30000) {
         oinkBusy = true;  // Brief lock for cleanup
-        uint32_t staleTimeout = Config::wifi().doNoHam ? OINK_PASSIVE_STALE_TIMEOUT : 60000;
+        uint32_t staleTimeout = 60000;  // 60 second stale timeout for OINK
         for (auto it = networks.begin(); it != networks.end();) {
             if (now - it->lastSeen > staleTimeout) {
                 it = networks.erase(it);
@@ -1206,8 +1166,7 @@ void OinkMode::processBeacon(const uint8_t* payload, uint16_t len, int8_t rssi) 
         // Limit network count to prevent OOM
         // NOTE: Don't do vector erase in callback - just drop if at capacity
         // The update() loop handles cleanup of stale networks
-        size_t maxNetworks = Config::wifi().doNoHam ? OINK_PASSIVE_MAX_NETWORKS : MAX_NETWORKS;
-        if (networks.size() >= maxNetworks) {
+        if (networks.size() >= MAX_NETWORKS) {
             // At capacity - skip adding new network (update() will clean stale ones)
             return;
         }
@@ -1240,25 +1199,15 @@ void OinkMode::processBeacon(const uint8_t* payload, uint16_t len, int8_t rssi) 
         networks[idx].beaconCount++;
         networks[idx].hasPMF = hasPMF;  // Update PMF status
         
-        // Clear dwell flag if we got beacon for network we were waiting for
-        // Also backfill SSID into any matching PMKID
-        // HYBRID FIX Layer 5: Skip if oinkBusy to prevent race with update()
-        if (pmkidNeedsSSID && memcmp(bssid, pmkidDwellBSSID, 6) == 0) {
-            if (networks[idx].ssid[0] != 0 && !oinkBusy) {
-                // Network already has SSID - backfill into PMKID
-                // Safe to iterate pmkids because oinkBusy is false
-                for (auto& p : pmkids) {
-                    if (p.ssid[0] == 0 && memcmp(p.bssid, bssid, 6) == 0) {
-                        strncpy(p.ssid, networks[idx].ssid, 32);
-                        p.ssid[32] = 0;
-                        queueLog("[OINK] PMKID SSID backfill (beacon): %s", p.ssid);
-                    }
+        // Backfill SSID into any matching PMKID that needs it
+        if (networks[idx].ssid[0] != 0 && !oinkBusy) {
+            for (auto& p : pmkids) {
+                if (p.ssid[0] == 0 && memcmp(p.bssid, bssid, 6) == 0) {
+                    strncpy(p.ssid, networks[idx].ssid, 32);
+                    p.ssid[32] = 0;
+                    queueLog("[OINK] PMKID SSID backfill (beacon): %s", p.ssid);
                 }
             }
-            // Always clear dwell flag when beacon matches, even if busy
-            // The re-lookup in update() will handle SSID backfill
-            pmkidNeedsSSID = false;
-            queueLog("[OINK] PMKID dwell complete - beacon matched");
         }
     }
 }
@@ -1491,29 +1440,23 @@ void OinkMode::processEAPOL(const uint8_t* payload, uint16_t len,
                             memcpy(pendingPMKIDCreate.bssid, bssid, 6);
                             memcpy(pendingPMKIDCreate.station, station, 6);
                             memcpy(pendingPMKIDCreate.pmkid, pmkidData, 16);
-                            // Get SSID
+                            // Get SSID from networks if available
                             int netIdx = findNetwork(bssid);
                             if (netIdx >= 0) {
                                 strncpy(pendingPMKIDCreate.ssid, networks[netIdx].ssid, 32);
                                 pendingPMKIDCreate.ssid[32] = 0;
                             } else {
-                                // No SSID yet - trigger dwell to catch beacon
-                                // millis() is safe to call from WiFi callback context
+                                // SSID not known yet - will be backfilled when beacon arrives
                                 pendingPMKIDCreate.ssid[0] = 0;
-                                pmkidNeedsSSID = true;
-                                memcpy(pmkidDwellBSSID, bssid, 6);
-                                pmkidDwellStartTime = millis();
-                                queueLog("[OINK] PMKID needs SSID - dwelling for beacon");
                             }
                             pendingPMKIDCreateReady = true;
                             
                             queueLog("[OINK] PMKID queued for creation");
                             
-                            // HYBRID FIX Layer 4: Trigger auto-save for PMKID
-                            // This ensures PMKIDs get written to SD (with backfill retry)
+                            // Trigger auto-save for PMKID (with backfill retry)
                             pendingAutoSave = true;
                             
-                            // Also queue the mood event
+                            // Queue the mood event
                             if (!pendingPMKIDCapture) {
                                 strncpy(pendingPMKIDSSID, pendingPMKIDCreate.ssid, 32);
                                 pendingPMKIDSSID[32] = 0;

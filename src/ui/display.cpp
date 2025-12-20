@@ -397,16 +397,14 @@ void Display::drawBottomBar() {
         // LOG_VIEWER: show scroll hint
         stats = "[;/.] SCROLL  [BKSP] EXIT";
     } else if (mode == PorkchopMode::OINK_MODE) {
-        // OINK: show Networks, Handshakes, Channel, and optionally Deauths/BRO count
+        // OINK: show Networks, Handshakes, Deauths, Channel, and optionally BRO count
         // (PWNED banner is shown in top bar)
-        // In DO NO HAM mode, hide D: counter since we're passive
         // In LOCKING state, show target SSID and client discovery count
         uint16_t netCount = OinkMode::getNetworkCount();
         uint16_t hsCount = OinkMode::getCompleteHandshakeCount();
         uint32_t deauthCount = OinkMode::getDeauthCount();
         uint8_t channel = OinkMode::getChannel();
         uint16_t broCount = OinkMode::getExcludedCount();
-        bool passive = Config::wifi().doNoHam;
         bool locking = OinkMode::isLocking();
         char buf[64];
         
@@ -433,13 +431,6 @@ void Display::drawBottomBar() {
                 // Uppercase for readability
                 for (int i = 0; ssidShort[i]; i++) ssidShort[i] = toupper(ssidShort[i]);
                 snprintf(buf, sizeof(buf), "LOCK:%s C:%02d CH:%02d", ssidShort, clients, channel);
-            }
-        } else if (passive) {
-            // DO NO HAM: no D: counter (we don't deauth)
-            if (broCount > 0) {
-                snprintf(buf, sizeof(buf), "N:%03d HS:%02d CH:%02d BRO:%02d DNH", netCount, hsCount, channel, broCount);
-            } else {
-                snprintf(buf, sizeof(buf), "N:%03d HS:%02d CH:%02d DNH", netCount, hsCount, channel);
             }
         } else {
             // Attack mode: show D: counter
@@ -929,7 +920,7 @@ void Display::onAboutEnterPressed() {
     if (aboutEnterCount >= 5 && !aboutAchievementShown) {
         if (!XP::hasAchievement(ACH_ABOUT_JUNKIE)) {
             XP::unlockAchievement(ACH_ABOUT_JUNKIE);
-            showToast("AB0UT_JUNK13 unlocked!");
+            showToast("AB0UT_JUNK13 UNLOCKED!");
         }
         aboutAchievementShown = true;
     }

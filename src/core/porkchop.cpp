@@ -137,6 +137,11 @@ void Porkchop::setMode(PorkchopMode mode) {
     // Store the mode we're leaving for cleanup
     PorkchopMode oldMode = currentMode;
     
+    // Detect seamless OINK <-> DNH switch (preserve WiFi state)
+    bool seamlessSwitch = 
+        (oldMode == PorkchopMode::OINK_MODE && mode == PorkchopMode::DNH_MODE) ||
+        (oldMode == PorkchopMode::DNH_MODE && mode == PorkchopMode::OINK_MODE);
+    
     // Only save "real" modes as previous (not SETTINGS/ABOUT/MENU/CAPTURES/ACHIEVEMENTS/FILE_TRANSFER/LOG_VIEWER/SWINE_STATS/BOAR_BROS/WIGLE_MENU)
     if (currentMode != PorkchopMode::SETTINGS && 
         currentMode != PorkchopMode::ABOUT && 
@@ -155,10 +160,18 @@ void Porkchop::setMode(PorkchopMode mode) {
     // Cleanup the mode we're actually leaving (oldMode), not previousMode
     switch (oldMode) {
         case PorkchopMode::OINK_MODE:
-            OinkMode::stop();
+            if (seamlessSwitch) {
+                OinkMode::stopSeamless();  // Preserve WiFi state for DNH
+            } else {
+                OinkMode::stop();
+            }
             break;
         case PorkchopMode::DNH_MODE:
-            DoNoHamMode::stop();
+            if (seamlessSwitch) {
+                DoNoHamMode::stopSeamless();  // Preserve WiFi state for OINK
+            } else {
+                DoNoHamMode::stop();
+            }
             break;
         case PorkchopMode::WARHOG_MODE:
             WarhogMode::stop();
@@ -210,13 +223,21 @@ void Porkchop::setMode(PorkchopMode mode) {
             break;
         case PorkchopMode::OINK_MODE:
             Avatar::setState(AvatarState::HUNTING);
-            SDLog::log("PORK", "Mode: OINK (DoNoHam: %s)", Config::wifi().doNoHam ? "ON" : "OFF");
-            OinkMode::start();
+            SDLog::log("PORK", "Mode: OINK");
+            if (seamlessSwitch) {
+                OinkMode::startSeamless();  // Preserves WiFi state from DNH
+            } else {
+                OinkMode::start();
+            }
             break;
         case PorkchopMode::DNH_MODE:
             Avatar::setState(AvatarState::NEUTRAL);  // Calm, passive state
             SDLog::log("PORK", "Mode: DO NO HAM");
-            DoNoHamMode::start();
+            if (seamlessSwitch) {
+                DoNoHamMode::startSeamless();  // Preserves WiFi state from OINK
+            } else {
+                DoNoHamMode::start();
+            }
             break;
         case PorkchopMode::WARHOG_MODE:
             Avatar::setState(AvatarState::EXCITED);
@@ -446,31 +467,45 @@ void Porkchop::handleInput() {
         }
         bWasPressed = bPressed;
         
-        // D key - toggle DO NO HAM (passive recon mode)
+        // D key - switch to DO NO HAM mode (seamless mode switch)
         static bool dWasPressed = false;
         bool dPressed = M5Cardputer.Keyboard.isKeyPressed('d') || M5Cardputer.Keyboard.isKeyPressed('D');
         if (dPressed && !dWasPressed) {
-            // Toggle DO NO HAM mode
-            bool newState = !Config::wifi().doNoHam;
-            Config::wifi().doNoHam = newState;
-            Config::save();  // Persist to config file
-            
-            // Track passive time for Silent Witness achievement
+            // Track passive time for achievements
             SessionStats& sess = const_cast<SessionStats&>(XP::getSession());
-            if (newState) {
-                // Starting passive mode - record start time
-                sess.passiveTimeStart = millis();
-                Display::showToast("DO NO HAM: ON");
-                delay(400);
-                Display::showToast("BRAVO 6, GOING DARK");
-            } else {
-                // Ending passive mode - clear start time
-                sess.passiveTimeStart = 0;
-                Display::showToast("DO NO HAM: OFF");
-                delay(400);
-                Display::showToast("WEAPONS HOT");
-            }
-            delay(500);
+            sess.passiveTimeStart = millis();
+            
+            // Show toast before mode switch (loading screen)
+            Display::showToast("BRAVO 6, GOING DARK");
+            delay(300);
+            
+            // Seamless switch to DNH mode
+            setMode(PorkchopMode::DNH_MODE);
+        }
+        dWasPressed = dPressed;
+    }
+    
+    // DNH mode - D key to switch back to OINK, Backspace to exit
+    if (currentMode == PorkchopMode::DNH_MODE) {
+        if (M5Cardputer.Keyboard.isKeyPressed(KEY_BACKSPACE)) {
+            setMode(PorkchopMode::IDLE);
+            return;
+        }
+        
+        // D key - switch back to OINK mode (seamless mode switch)
+        static bool dWasPressed = false;
+        bool dPressed = M5Cardputer.Keyboard.isKeyPressed('d') || M5Cardputer.Keyboard.isKeyPressed('D');
+        if (dPressed && !dWasPressed) {
+            // Clear passive time tracking
+            SessionStats& sess = const_cast<SessionStats&>(XP::getSession());
+            sess.passiveTimeStart = 0;
+            
+            // Show toast before mode switch (loading screen)
+            Display::showToast("WEAPONS HOT");
+            delay(300);
+            
+            // Seamless switch to OINK mode
+            setMode(PorkchopMode::OINK_MODE);
         }
         dWasPressed = dPressed;
     }

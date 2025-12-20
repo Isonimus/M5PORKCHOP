@@ -4,13 +4,14 @@
 
 M5Porkchop is a WiFi security research tool for the M5Cardputer (ESP32-S3 based) with a "piglet" mascot personality. It features:
 - **OINK Mode**: WiFi scanning, handshake capture, PMKID capture, deauth attacks
-  - **DO NO HAM Toggle**: Passive-only recon within OINK (D key, no attacks, fast hopping)
   - **BOAR BROS**: Network exclusion list (press B to exclude, persists to SD)
-- **DO NO HAM Mode**: Standalone passive WiFi reconnaissance (separate from OINK)
+  - **D key**: Seamless switch to DO NO HAM mode ("BRAVO 6, GOING DARK")
+- **DO NO HAM Mode**: Standalone passive WiFi reconnaissance
   - Pure listening mode - catches natural client reconnects
   - PMKID capture from AP beacons (no deauth needed)
   - Handshake capture from natural reconnections
   - Fast channel hopping for maximum coverage
+  - **D key**: Seamless switch back to OINK mode ("WEAPONS HOT")
 - **WARHOG Mode**: Wardriving with GPS logging, dual export (internal CSV + WiGLE v1.6)
 - **PORK TRACKS**: WiGLE file browser and uploader (upload wardrives from device)
 - **PIGGYBLUES Mode**: BLE notification spam (AppleJuice, FastPair, Samsung, SwiftPair)
@@ -239,7 +240,8 @@ Used in: `showToast()`, `showLevelUp()`, `showClassPromotion()`, warning dialogs
 - **Backtick (`)** - Open menu / Exit to previous mode
 - **O/W/B/H/S/T/D** - Quick mode shortcuts from IDLE (Oink/Warhog/piggyBlues/Hog on spectrum/Swine stats/Tweak settings/Do no ham)
 - **B** - In OINK mode: Add selected network to BOAR BROS exclusion list
-- **D** - In OINK mode: Toggle DO NO HAM (passive mode) - "BRAVO 6, GOING DARK" / "WEAPONS HOT"
+- **D** - In OINK mode: Switch to DO NO HAM mode ("BRAVO 6, GOING DARK") - seamless WiFi handoff
+- **D** - In DNH mode: Switch back to OINK mode ("WEAPONS HOT") - seamless WiFi handoff
 - **P** - Take screenshot (saves to `/screenshots/screenshotNNN.bmp` on SD card)
 - **Backspace** - Stop current mode and return to IDLE
 - **G0 button** - Physical button on top, returns to IDLE from any mode (uses GPIO0 direct read)
@@ -297,6 +299,11 @@ All toasts in menus use 500ms delay after display so users can read messages. Pa
 Display::showToast("Message");
 delay(500);
 ```
+
+### Toast Casing Convention
+- **All toasts are UPPERCASE** except `settings_menu.cpp`
+- **settings_menu.cpp toasts are intentionally lowercase** - this is a joke with users ("Key loaded!", "Saved", etc.)
+- Do NOT "fix" settings menu toasts to uppercase - they are correct as-is
 
 ## WPA-SEC Integration
 
@@ -1070,50 +1077,37 @@ File f = SD.open(BOAR_BROS_FILE, FILE_WRITE);
 - Shows SSID (or "NONAME BRO") + full BSSID for each entry
 - Delete removes from OinkMode::boarBros and saves to SD
 
-### OINK Mode - DO NO HAM (Passive Recon)
-Toggle in Settings Menu OR press **D key** in OINK mode for quick toggle with tactical toasts:
-- `"DO NO HAM: ON"` → `"BRAVO 6, GOING DARK"` - attacks stop immediately
-- `"DO NO HAM: OFF"` → `"WEAPONS HOT"` - attacks resume after 5s rescan
+### OINK ↔ DO NO HAM Seamless Switching
+Press **D key** in either mode for instant tactical mode switch:
+- In OINK → "BRAVO 6, GOING DARK" → switches to DNH_MODE
+- In DNH → "WEAPONS HOT" → switches back to OINK_MODE
 
-Hardcoded optimal values for passive mode:
+**Seamless WiFi handoff:**
+Uses `startSeamless()` / `stopSeamless()` functions that preserve promiscuous mode state:
+- No 200ms WiFi reinit delay
+- No clearing of network/handshake vectors
+- Callback dispatch based on `DoNoHamMode::isRunning()` flag
+
+**Implementation:**
 ```cpp
-const uint16_t DNH_HOP_INTERVAL = 150;     // 150ms = fast sweeps for mobile recon
-const size_t DNH_MAX_NETWORKS = 150;       // Limited to prevent OOM when walking
-const uint32_t DNH_STALE_TIMEOUT = 45000;  // 45s - faster cleanup when mobile
-const size_t HEAP_MIN_THRESHOLD = 30000;   // 30KB minimum free heap to add networks
+// In porkchop.cpp setMode():
+bool seamlessSwitch = 
+    (oldMode == PorkchopMode::OINK_MODE && mode == PorkchopMode::DNH_MODE) ||
+    (oldMode == PorkchopMode::DNH_MODE && mode == PorkchopMode::OINK_MODE);
+
+// Cleanup uses stopSeamless() for OINK↔DNH, stop() otherwise
+// Init uses startSeamless() for OINK↔DNH, start() otherwise
 ```
 
-**Immediate attack abort on toggle:**
-When D key enables DO NO HAM while in LOCKING/ATTACKING/WAITING states, the update() loop
-immediately resets to SCANNING state before processing the state machine:
-```cpp
-if (Config::wifi().doNoHam && autoState != AutoState::SCANNING && autoState != AutoState::BORED) {
-    autoState = AutoState::SCANNING;
-    deauthing = false;
-    channelHopping = true;
-    targetIndex = -1;
-}
-```
-
-**Behavior when `Config::wifi().doNoHam` is true:**
-- State machine stays in `SCANNING` forever - never transitions to LOCKING/ATTACKING
-- Uses 150ms channel hop interval (vs buff-modified ~500ms in attack mode)
-- Network capacity limited to 150 (vs 200 in attack mode) to prevent OOM
-- Stale timeout reduced to 45s (vs 60s) for faster cleanup when walking
-- Heap check before network add - skips if <30KB free
-- MAC randomization always enabled (regardless of setting)
-- PMKID capture still works - M1 frames are passive catches
-- Calls `Mood::onPassiveRecon()` instead of `onSniffing()` for zen phrases
-- Bottom bar shows `"DOIN NO HAM"` instead of D: counter
-
-**Implementation locations:**
-- `config.h`: `bool doNoHam = false;` in WiFiConfig struct
-- `config.cpp`: Load/save in WiFi section
-- `settings_menu.cpp`: Toggle after "Rnd MAC" (items[12])
-- `porkchop.cpp`: D key handler with debounce, Config::save() for persistence
-- `oink.cpp`: DNH constants, immediate abort check, state machine SCANNING case
-- `display.cpp`: Bottom bar shows "DOIN NO HAM" when passive
-- `mood.cpp`: `PHRASES_PASSIVE_RECON[]` array, `onPassiveRecon()` function
+**Key differences between modes:**
+| Feature | OINK Mode | DO NO HAM Mode |
+|---------|-----------|----------------|
+| Purpose | Attack mode (deauth, capture) | Passive recon only |
+| State Machine | SCANNING→LOCKING→ATTACKING | HOPPING + DWELLING |
+| Deauth | Yes (D: counter in bottom bar) | Never |
+| Network Storage | Own vectors | Own vectors |
+| PMKID Capture | Yes (via M1 EAPOL) | Yes (with dwell for SSID backfill) |
+| Bottom Bar | N:xxx HS:xx D:xxxx CH:xx | N:xxx P:xx HS:xx CH:xx DNH |
 
 ### MAC Randomization
 `WSLBypasser::randomizeMAC()` generates a random locally-administered MAC on mode start:
@@ -1122,23 +1116,14 @@ mac[0] = (mac[0] & 0xFC) | 0x02;  // Set local bit, clear multicast
 ```
 **Why**: Prevents device fingerprinting across sessions. Uses ESP32 hardware RNG (`esp_fill_random`). Called in OINK, WARHOG, SPECTRUM, and DNH mode start() if `Config::wifi().randomizeMAC` is true (default ON).
 
-## DO NO HAM Mode (Standalone)
+## DO NO HAM Mode
 
 ### Overview
-Separate passive-only reconnaissance mode. Unlike the OINK mode toggle, this is a dedicated mode accessed from the menu or 'D' key from IDLE. Pure listening mode for stealthy recon.
+Passive-only WiFi reconnaissance mode. Access from menu, D key from IDLE, or D key in OINK mode for seamless switch. Pure listening mode for stealthy recon - never sends packets.
 
 ### Architecture
 - `src/modes/donoham.h` - DoNoHamMode class, DNHState enum
 - `src/modes/donoham.cpp` - Full implementation
-
-### Key Differences from OINK Mode Toggle
-| Feature | OINK Toggle | DNH Mode |
-|---------|-------------|----------|
-| Access | D key in OINK | D key from IDLE or menu |
-| State Machine | SCANNING only | HOPPING + DWELLING |
-| Network Storage | Shared with OINK | Separate vectors |
-| PMKID Dwell | Via OINK hybrid fix | Native DWELLING state |
-| Attack Resume | Toggle D again | Never (different mode) |
 
 ### Constants
 ```cpp

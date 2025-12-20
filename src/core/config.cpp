@@ -113,7 +113,6 @@ bool Config::load() {
         wifiConfig.lockTime = doc["wifi"]["lockTime"] | 4000;
         wifiConfig.enableDeauth = doc["wifi"]["enableDeauth"] | true;
         wifiConfig.randomizeMAC = doc["wifi"]["randomizeMAC"] | true;
-        wifiConfig.doNoHam = doc["wifi"]["doNoHam"] | false;
         wifiConfig.otaSSID = doc["wifi"]["otaSSID"] | "";
         wifiConfig.otaPassword = doc["wifi"]["otaPassword"] | "";
         wifiConfig.autoConnect = doc["wifi"]["autoConnect"] | false;
@@ -227,7 +226,6 @@ bool Config::save() {
     doc["wifi"]["lockTime"] = wifiConfig.lockTime;
     doc["wifi"]["enableDeauth"] = wifiConfig.enableDeauth;
     doc["wifi"]["randomizeMAC"] = wifiConfig.randomizeMAC;
-    doc["wifi"]["doNoHam"] = wifiConfig.doNoHam;
     doc["wifi"]["otaSSID"] = wifiConfig.otaSSID;
     doc["wifi"]["otaPassword"] = wifiConfig.otaPassword;
     doc["wifi"]["autoConnect"] = wifiConfig.autoConnect;

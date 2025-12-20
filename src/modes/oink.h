@@ -93,6 +93,10 @@ public:
     static void update();
     static bool isRunning() { return running; }
     
+    // Seamless switching (preserves WiFi state for OINK <-> DNH)
+    static void startSeamless();
+    static void stopSeamless();
+    
     // Scanning
     static void startScan();
     static void stopScan();
