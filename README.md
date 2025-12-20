@@ -472,10 +472,16 @@
 
         [;]     Navigate up through client list
         [.]     Navigate down through client list
+        [D]     Details popup (full MAC, vendor, RSSI, position)
         [Enter] DEAUTH selected client (5 frames each way)
         [B]     Add network to BOAR BROS and exit
         [`]     Exit to spectrum view
         [Bksp]  Exit to spectrum view
+
+    D gives you the D. The Details. Full 6-octet MAC address for your 
+    notes. Vendor name untruncated. RSSI with age. Position relative to 
+    the AP. Everything you need to identify a target before you punch it.
+    Any key closes. No commitment. Just intel. Big D energy.
 
     Press Enter on a client. 5 deauth frames AP→Client. 5 more Client→AP.
     1-5ms random jitter between each. Brief toast: "DEAUTH XX:XX x5".
@@ -983,6 +989,7 @@
         | S     | SWINE STATS - lifetime stats     |
         | T     | Tweak settings                   |
         | D     | Toggle DO NO HAM (in OINK mode)  |
+        |       | (in Client Monitor: Details)     |
         | P     | Screenshot - save to SD card     |
         | `     | Back one level / Open menu       |
         | ;     | Navigate up / Scroll left        |
