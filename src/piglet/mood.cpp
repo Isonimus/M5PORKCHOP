@@ -259,30 +259,82 @@ static int pickPhraseIdx(PhraseCategory cat, int count) {
     return idx;
 }
 
-// Phrase categories
-const char* PHRASES_HAPPY[] = {
-    "snout pwns all",
-    "oink oink oink",
-    "got that truffle",
-    "packets nom nom",
-    "hog on a roll",
-    "mud life best life",
-    "truffle shuffle",
-    "chaos tastes good",
-    "horse is sober today",
-    "barn looks good",
-    "optometrist helped"
+// Phrase categories - TRIPLE PERSONALITY SPLIT
+// British hooligan OINK, Rasta blessed C.D., US Army SGT WARHOG
+
+const char* PHRASES_HAPPY_OINK[] = {
+    "snout proper owns it",
+    "oi oi oi",
+    "got that truffle bruv",
+    "packets proper nommin",
+    "hog on a mad one",
+    "mud life innit",
+    "truffle shuffle mate",
+    "chaos tastes mint",
+    "right proper mood",
+    "horse lookin better",
+    "sorted snout yeah"
 };
 
-const char* PHRASES_EXCITED[] = {
-    "OINK OINK OINK",
-    "pwned em good",
-    "truffle in the bag",
-    "gg no re",
-    "snout goes brrrr",
-    "0day buffet",
-    "HORSE IS BACK",
-    "BARN PARTY TIME"
+const char* PHRASES_HAPPY_CD[] = {
+    "snout feel irie",
+    "blessed oink vibes",
+    "got di truffle easy",
+    "packets flow natural",
+    "hog inna good mood",
+    "mud life blessed",
+    "truffle dance irie",
+    "chaos taste sweet",
+    "peaceful piggy seen",
+    "horse find di way",
+    "jah guide di snout"
+};
+
+const char* PHRASES_HAPPY_WARHOG[] = {
+    "tactical advantage secured",
+    "roger that truffle",
+    "mission parameters met",
+    "packets inbound hooah",
+    "hog ready to deploy",
+    "operational status green",
+    "intel acquisition positive",
+    "situational awareness high",
+    "coordinates locked",
+    "barn perimeter secure",
+    "objective achieved"
+};
+
+const char* PHRASES_EXCITED_OINK[] = {
+    "OI OI OI PROPER",
+    "PWNED EM GOOD MATE",
+    "TRUFFLE BAGGED BRUV",
+    "GG NO RE INNIT",
+    "SNOUT GOES MAD",
+    "0DAY BUFFET YEAH",
+    "PROPER BUZZING",
+    "SORTED PROPER"
+};
+
+const char* PHRASES_EXCITED_CD[] = {
+    "BLESSED OINK VIBES",
+    "PWNED DEM IRIE",
+    "TRUFFLE BLESSED JAH",
+    "GG RESPECT BREDREN",
+    "SNOUT FEEL DI POWER",
+    "0DAY BLESSED",
+    "IRIE VIBES STRONG",
+    "JAH GUIDE DI WIN"
+};
+
+const char* PHRASES_EXCITED_WARHOG[] = {
+    "MISSION ACCOMPLISHED",
+    "OSCAR MIKE BABY",
+    "TACTICAL SUPERIORITY",
+    "HOOAH TRUFFLE DOWN",
+    "OBJECTIVE SECURED",
+    "ENEMY NEUTRALIZED",
+    "ROGER WILCO SUCCESS",
+    "BRING THE RAIN"
 };
 
 const char* PHRASES_HUNTING[] = {
@@ -310,28 +362,76 @@ const char* PHRASES_OINK_QUIET[] = {
     "802.11 wasteland"
 };
 
-const char* PHRASES_SLEEPY[] = {
-    "bored piggy",
-    "null n void",
-    "no truffles here",
-    "/dev/null",
-    "zzz oink zzz",
-    "sleepy piggy",
-    "horse sleeping it off",
-    "barn quiet tonight"
+const char* PHRASES_SLEEPY_OINK[] = {
+    "knackered piggy",
+    "sod all happening",
+    "no truffles mate",
+    "/dev/null init",
+    "zzz proper tired",
+    "dead bored bruv",
+    "bugger all here",
+    "wasteland proper"
 };
 
-const char* PHRASES_SAD[] = {
-    "starving piggy",
-    "404 no truffle",
-    "lost n confused",
-    "empty trough",
-    "sad lil piggy",
-    "need dem truffles",
-    "horse left again",
-    "barn empty now",
-    "horse on that k again",
-    "optometrist gone"
+const char* PHRASES_SLEEPY_CD[] = {
+    "restin easy seen",
+    "patience bredren",
+    "no rush today",
+    "chill mode active",
+    "meditation time",
+    "peaceful wait",
+    "jah time come",
+    "easy does it"
+};
+
+const char* PHRASES_SLEEPY_WARHOG[] = {
+    "holding position",
+    "awaiting orders",
+    "radio silence",
+    "standby mode active",
+    "no contact sir",
+    "sector quiet",
+    "maintaining watch",
+    "idle but ready"
+};
+
+const char* PHRASES_SAD_OINK[] = {
+    "starvin proper",
+    "404 no truffle mate",
+    "proper lost bruv",
+    "trough bone dry",
+    "sad innit",
+    "need truffles bad",
+    "bloody depressing",
+    "horse wandered off",
+    "proper gutted",
+    "miserable piggy"
+};
+
+const char* PHRASES_SAD_CD[] = {
+    "hungry snout seen",
+    "404 no truffle ya",
+    "lost di way",
+    "trough empty bredren",
+    "sad vibes today",
+    "need di herb bad",
+    "patience test hard",
+    "horse need help",
+    "struggle real",
+    "jah test mi"
+};
+
+const char* PHRASES_SAD_WARHOG[] = {
+    "supplies critical",
+    "mission failure likely",
+    "lost contact",
+    "morale compromised",
+    "negative on intel",
+    "zero targets sir",
+    "battalion exhausted",
+    "barn abandoned",
+    "reinforcements needed",
+    "status dire"
 };
 
 // BORED phrases - pig has nothing to hack
@@ -636,8 +736,26 @@ void Mood::onHandshakeCaptured(const char* apName) {
         const char* templates[] = { "%s pwned", "%s gg ez", "rekt %s", "%s is mine" };
         snprintf(buf1, sizeof(buf1), templates[random(0, 4)], ap.c_str());
     } else {
-        int idx = pickPhraseIdx(PhraseCategory::EXCITED, sizeof(PHRASES_EXCITED) / sizeof(PHRASES_EXCITED[0]));
-        strncpy(buf1, PHRASES_EXCITED[idx], sizeof(buf1) - 1);
+        // Personality-aware excited phrases
+        PorkchopMode mode = porkchop.getMode();
+        bool isCD = (mode == PorkchopMode::DNH_MODE);
+        bool isWarhog = (mode == PorkchopMode::WARHOG_MODE);
+        
+        const char** excitedPhrases;
+        int excitedCount;
+        if (isCD) {
+            excitedPhrases = PHRASES_EXCITED_CD;
+            excitedCount = sizeof(PHRASES_EXCITED_CD) / sizeof(PHRASES_EXCITED_CD[0]);
+        } else if (isWarhog) {
+            excitedPhrases = PHRASES_EXCITED_WARHOG;
+            excitedCount = sizeof(PHRASES_EXCITED_WARHOG) / sizeof(PHRASES_EXCITED_WARHOG[0]);
+        } else {
+            excitedPhrases = PHRASES_EXCITED_OINK;
+            excitedCount = sizeof(PHRASES_EXCITED_OINK) / sizeof(PHRASES_EXCITED_OINK[0]);
+        }
+        
+        int idx = pickPhraseIdx(PhraseCategory::EXCITED, excitedCount);
+        strncpy(buf1, excitedPhrases[idx], sizeof(buf1) - 1);
         buf1[sizeof(buf1) - 1] = '\0';
     }
     
@@ -784,15 +902,48 @@ void Mood::setStatusMessage(const String& msg) {
 void Mood::onMLPrediction(float confidence) {
     lastActivityTime = millis();
     
+    // Personality-aware phrases
+    PorkchopMode mode = porkchop.getMode();
+    bool isCD = (mode == PorkchopMode::DNH_MODE);
+    bool isWarhog = (mode == PorkchopMode::WARHOG_MODE);
+    
     // High confidence = happy
     if (confidence > 0.8f) {
         happiness = min(happiness + 15, 100);
-        int idx = pickPhraseIdx(PhraseCategory::EXCITED, sizeof(PHRASES_EXCITED) / sizeof(PHRASES_EXCITED[0]));
-        currentPhrase = PHRASES_EXCITED[idx];
+        
+        const char** excitedPhrases;
+        int excitedCount;
+        if (isCD) {
+            excitedPhrases = PHRASES_EXCITED_CD;
+            excitedCount = sizeof(PHRASES_EXCITED_CD) / sizeof(PHRASES_EXCITED_CD[0]);
+        } else if (isWarhog) {
+            excitedPhrases = PHRASES_EXCITED_WARHOG;
+            excitedCount = sizeof(PHRASES_EXCITED_WARHOG) / sizeof(PHRASES_EXCITED_WARHOG[0]);
+        } else {
+            excitedPhrases = PHRASES_EXCITED_OINK;
+            excitedCount = sizeof(PHRASES_EXCITED_OINK) / sizeof(PHRASES_EXCITED_OINK[0]);
+        }
+        
+        int idx = pickPhraseIdx(PhraseCategory::EXCITED, excitedCount);
+        currentPhrase = excitedPhrases[idx];
     } else if (confidence > 0.5f) {
         happiness = min(happiness + 5, 100);
-        int idx = pickPhraseIdx(PhraseCategory::HAPPY, sizeof(PHRASES_HAPPY) / sizeof(PHRASES_HAPPY[0]));
-        currentPhrase = PHRASES_HAPPY[idx];
+        
+        const char** happyPhrases;
+        int happyCount;
+        if (isCD) {
+            happyPhrases = PHRASES_HAPPY_CD;
+            happyCount = sizeof(PHRASES_HAPPY_CD) / sizeof(PHRASES_HAPPY_CD[0]);
+        } else if (isWarhog) {
+            happyPhrases = PHRASES_HAPPY_WARHOG;
+            happyCount = sizeof(PHRASES_HAPPY_WARHOG) / sizeof(PHRASES_HAPPY_WARHOG[0]);
+        } else {
+            happyPhrases = PHRASES_HAPPY_OINK;
+            happyCount = sizeof(PHRASES_HAPPY_OINK) / sizeof(PHRASES_HAPPY_OINK[0]);
+        }
+        
+        int idx = pickPhraseIdx(PhraseCategory::HAPPY, happyCount);
+        currentPhrase = happyPhrases[idx];
     }
     
     lastPhraseChange = millis();
@@ -827,8 +978,25 @@ void Mood::onNoActivity(uint32_t seconds) {
                 int idx = pickPhraseIdx(PhraseCategory::SLEEPY, sizeof(PHRASES_OINK_QUIET) / sizeof(PHRASES_OINK_QUIET[0]));
                 currentPhrase = PHRASES_OINK_QUIET[idx];
             } else {
-                int idx = pickPhraseIdx(PhraseCategory::SLEEPY, sizeof(PHRASES_SLEEPY) / sizeof(PHRASES_SLEEPY[0]));
-                currentPhrase = PHRASES_SLEEPY[idx];
+                // Personality-aware sleepy phrases
+                bool isCD = (mode == PorkchopMode::DNH_MODE);
+                bool isWarhog = (mode == PorkchopMode::WARHOG_MODE);
+                
+                const char** sleepyPhrases;
+                int sleepyCount;
+                if (isCD) {
+                    sleepyPhrases = PHRASES_SLEEPY_CD;
+                    sleepyCount = sizeof(PHRASES_SLEEPY_CD) / sizeof(PHRASES_SLEEPY_CD[0]);
+                } else if (isWarhog) {
+                    sleepyPhrases = PHRASES_SLEEPY_WARHOG;
+                    sleepyCount = sizeof(PHRASES_SLEEPY_WARHOG) / sizeof(PHRASES_SLEEPY_WARHOG[0]);
+                } else {
+                    sleepyPhrases = PHRASES_SLEEPY_OINK;
+                    sleepyCount = sizeof(PHRASES_SLEEPY_OINK) / sizeof(PHRASES_SLEEPY_OINK[0]);
+                }
+                
+                int idx = pickPhraseIdx(PhraseCategory::SLEEPY, sleepyCount);
+                currentPhrase = sleepyPhrases[idx];
             }
             lastPhraseChange = now;  // Prevent immediate re-selection
         }
@@ -842,8 +1010,26 @@ void Mood::onWiFiLost() {
     happiness = max(happiness - 20, -100);
     lastActivityTime = millis();
     
-    int idx = pickPhraseIdx(PhraseCategory::SAD, sizeof(PHRASES_SAD) / sizeof(PHRASES_SAD[0]));
-    currentPhrase = PHRASES_SAD[idx];
+    // Personality-aware sad phrases
+    PorkchopMode mode = porkchop.getMode();
+    bool isCD = (mode == PorkchopMode::DNH_MODE);
+    bool isWarhog = (mode == PorkchopMode::WARHOG_MODE);
+    
+    const char** sadPhrases;
+    int sadCount;
+    if (isCD) {
+        sadPhrases = PHRASES_SAD_CD;
+        sadCount = sizeof(PHRASES_SAD_CD) / sizeof(PHRASES_SAD_CD[0]);
+    } else if (isWarhog) {
+        sadPhrases = PHRASES_SAD_WARHOG;
+        sadCount = sizeof(PHRASES_SAD_WARHOG) / sizeof(PHRASES_SAD_WARHOG[0]);
+    } else {
+        sadPhrases = PHRASES_SAD_OINK;
+        sadCount = sizeof(PHRASES_SAD_OINK) / sizeof(PHRASES_SAD_OINK[0]);
+    }
+    
+    int idx = pickPhraseIdx(PhraseCategory::SAD, sadCount);
+    currentPhrase = sadPhrases[idx];
     lastPhraseChange = millis();
 }
 
@@ -878,6 +1064,11 @@ void Mood::selectPhrase() {
     const char** phrases;
     int count;
     PhraseCategory cat;
+    
+    // Get current mode for personality-specific phrase selection
+    PorkchopMode mode = porkchop.getMode();
+    bool isCD = (mode == PorkchopMode::DNH_MODE);
+    bool isWarhog = (mode == PorkchopMode::WARHOG_MODE);
     
     // Use effective happiness (base + momentum) for phrase selection
     int effectiveMood = getEffectiveHappiness();
@@ -915,10 +1106,18 @@ void Mood::selectPhrase() {
         return;
     }
     
-    // High curiosity (>0.7) with activity can trigger excited phrases
+    // High curiosity (>0.7) with activity can trigger excited phrases (personality-aware)
     if (pers.curiosity > 0.7f && sess.networks > 5 && personalityRoll < (int)(pers.curiosity * 25)) {
-        phrases = PHRASES_EXCITED;
-        count = sizeof(PHRASES_EXCITED) / sizeof(PHRASES_EXCITED[0]);
+        if (isCD) {
+            phrases = PHRASES_EXCITED_CD;
+            count = sizeof(PHRASES_EXCITED_CD) / sizeof(PHRASES_EXCITED_CD[0]);
+        } else if (isWarhog) {
+            phrases = PHRASES_EXCITED_WARHOG;
+            count = sizeof(PHRASES_EXCITED_WARHOG) / sizeof(PHRASES_EXCITED_WARHOG[0]);
+        } else {
+            phrases = PHRASES_EXCITED_OINK;
+            count = sizeof(PHRASES_EXCITED_OINK) / sizeof(PHRASES_EXCITED_OINK[0]);
+        }
         cat = PhraseCategory::EXCITED;
         int idx = pickPhraseIdx(cat, count);
         currentPhrase = phrases[idx];
@@ -931,36 +1130,86 @@ void Mood::selectPhrase() {
     int bleedRoll = random(0, 100);
     
     if (effectiveMood > 80 && bleedRoll < 30) {
-        // Extremely happy - use excited phrases regardless of context
-        phrases = PHRASES_EXCITED;
-        count = sizeof(PHRASES_EXCITED) / sizeof(PHRASES_EXCITED[0]);
+        // Extremely happy - use excited phrases (personality-aware)
+        if (isCD) {
+            phrases = PHRASES_EXCITED_CD;
+            count = sizeof(PHRASES_EXCITED_CD) / sizeof(PHRASES_EXCITED_CD[0]);
+        } else if (isWarhog) {
+            phrases = PHRASES_EXCITED_WARHOG;
+            count = sizeof(PHRASES_EXCITED_WARHOG) / sizeof(PHRASES_EXCITED_WARHOG[0]);
+        } else {
+            phrases = PHRASES_EXCITED_OINK;
+            count = sizeof(PHRASES_EXCITED_OINK) / sizeof(PHRASES_EXCITED_OINK[0]);
+        }
         cat = PhraseCategory::EXCITED;
     } else if (effectiveMood < -60 && bleedRoll < 30) {
-        // Extremely sad - melancholy bleeds through
-        phrases = PHRASES_SAD;
-        count = sizeof(PHRASES_SAD) / sizeof(PHRASES_SAD[0]);
+        // Extremely sad - melancholy bleeds through (personality-aware)
+        if (isCD) {
+            phrases = PHRASES_SAD_CD;
+            count = sizeof(PHRASES_SAD_CD) / sizeof(PHRASES_SAD_CD[0]);
+        } else if (isWarhog) {
+            phrases = PHRASES_SAD_WARHOG;
+            count = sizeof(PHRASES_SAD_WARHOG) / sizeof(PHRASES_SAD_WARHOG[0]);
+        } else {
+            phrases = PHRASES_SAD_OINK;
+            count = sizeof(PHRASES_SAD_OINK) / sizeof(PHRASES_SAD_OINK[0]);
+        }
         cat = PhraseCategory::SAD;
     } else if (effectiveMood > 70) {
-        // High happiness but not from handshake - use HAPPY not EXCITED
-        // EXCITED phrases reserved for actual handshake captures
-        phrases = PHRASES_HAPPY;
-        count = sizeof(PHRASES_HAPPY) / sizeof(PHRASES_HAPPY[0]);
+        // High happiness but not from handshake - use HAPPY not EXCITED (personality-aware)
+        if (isCD) {
+            phrases = PHRASES_HAPPY_CD;
+            count = sizeof(PHRASES_HAPPY_CD) / sizeof(PHRASES_HAPPY_CD[0]);
+        } else if (isWarhog) {
+            phrases = PHRASES_HAPPY_WARHOG;
+            count = sizeof(PHRASES_HAPPY_WARHOG) / sizeof(PHRASES_HAPPY_WARHOG[0]);
+        } else {
+            phrases = PHRASES_HAPPY_OINK;
+            count = sizeof(PHRASES_HAPPY_OINK) / sizeof(PHRASES_HAPPY_OINK[0]);
+        }
         cat = PhraseCategory::HAPPY;
     } else if (effectiveMood > 30) {
-        phrases = PHRASES_HAPPY;
-        count = sizeof(PHRASES_HAPPY) / sizeof(PHRASES_HAPPY[0]);
+        // Normal happy mood (personality-aware)
+        if (isCD) {
+            phrases = PHRASES_HAPPY_CD;
+            count = sizeof(PHRASES_HAPPY_CD) / sizeof(PHRASES_HAPPY_CD[0]);
+        } else if (isWarhog) {
+            phrases = PHRASES_HAPPY_WARHOG;
+            count = sizeof(PHRASES_HAPPY_WARHOG) / sizeof(PHRASES_HAPPY_WARHOG[0]);
+        } else {
+            phrases = PHRASES_HAPPY_OINK;
+            count = sizeof(PHRASES_HAPPY_OINK) / sizeof(PHRASES_HAPPY_OINK[0]);
+        }
         cat = PhraseCategory::HAPPY;
     } else if (effectiveMood > -10) {
         phrases = PHRASES_HUNTING;
         count = sizeof(PHRASES_HUNTING) / sizeof(PHRASES_HUNTING[0]);
         cat = PhraseCategory::HUNTING;
     } else if (effectiveMood > -50) {
-        phrases = PHRASES_SLEEPY;
-        count = sizeof(PHRASES_SLEEPY) / sizeof(PHRASES_SLEEPY[0]);
+        // Sleepy/bored (personality-aware)
+        if (isCD) {
+            phrases = PHRASES_SLEEPY_CD;
+            count = sizeof(PHRASES_SLEEPY_CD) / sizeof(PHRASES_SLEEPY_CD[0]);
+        } else if (isWarhog) {
+            phrases = PHRASES_SLEEPY_WARHOG;
+            count = sizeof(PHRASES_SLEEPY_WARHOG) / sizeof(PHRASES_SLEEPY_WARHOG[0]);
+        } else {
+            phrases = PHRASES_SLEEPY_OINK;
+            count = sizeof(PHRASES_SLEEPY_OINK) / sizeof(PHRASES_SLEEPY_OINK[0]);
+        }
         cat = PhraseCategory::SLEEPY;
     } else {
-        phrases = PHRASES_SAD;
-        count = sizeof(PHRASES_SAD) / sizeof(PHRASES_SAD[0]);
+        // Very sad (personality-aware)
+        if (isCD) {
+            phrases = PHRASES_SAD_CD;
+            count = sizeof(PHRASES_SAD_CD) / sizeof(PHRASES_SAD_CD[0]);
+        } else if (isWarhog) {
+            phrases = PHRASES_SAD_WARHOG;
+            count = sizeof(PHRASES_SAD_WARHOG) / sizeof(PHRASES_SAD_WARHOG[0]);
+        } else {
+            phrases = PHRASES_SAD_OINK;
+            count = sizeof(PHRASES_SAD_OINK) / sizeof(PHRASES_SAD_OINK[0]);
+        }
         cat = PhraseCategory::SAD;
     }
     
