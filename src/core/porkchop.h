@@ -9,6 +9,7 @@
 enum class PorkchopMode : uint8_t {
     IDLE = 0,       // Main screen, piglet idle
     OINK_MODE,      // Deauth + sniff mode
+    DNH_MODE,       // DO NO HAM - passive recon (no attacks)
     WARHOG_MODE,    // Wardriving mode
     PIGGYBLUES_MODE,// BLE notification spam
     SPECTRUM_MODE,  // WiFi spectrum analyzer

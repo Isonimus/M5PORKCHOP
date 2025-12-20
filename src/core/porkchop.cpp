@@ -14,6 +14,7 @@
 #include "../piglet/mood.h"
 #include "../piglet/avatar.h"
 #include "../modes/oink.h"
+#include "../modes/donoham.h"
 #include "../modes/warhog.h"
 #include "../modes/piggyblues.h"
 #include "../modes/spectrum.h"
@@ -75,6 +76,7 @@ void Porkchop::init() {
     std::vector<MenuItem> mainMenuItems = {
         // === MODES ===
         {"OINK", 1, "HUNT FOR HANDSHAKES"},
+        {"DO NO HAM", 14, "PASSIVE RECON (NO ATTACKS)"},
         {"WARHOG", 2, "WARDRIVE WITH GPS"},
         {"PIGGY BLUES", 8, "BLE NOTIFICATION SPAM"},
         {"HOG ON SPECTRUM", 10, "WIFI SPECTRUM ANALYZER"},
@@ -109,6 +111,7 @@ void Porkchop::init() {
             case 11: setMode(PorkchopMode::SWINE_STATS); break;
             case 12: setMode(PorkchopMode::BOAR_BROS); break;
             case 13: setMode(PorkchopMode::WIGLE_MENU); break;
+            case 14: setMode(PorkchopMode::DNH_MODE); break;
         }
         Menu::clearSelected();
     });
@@ -153,6 +156,9 @@ void Porkchop::setMode(PorkchopMode mode) {
     switch (oldMode) {
         case PorkchopMode::OINK_MODE:
             OinkMode::stop();
+            break;
+        case PorkchopMode::DNH_MODE:
+            DoNoHamMode::stop();
             break;
         case PorkchopMode::WARHOG_MODE:
             WarhogMode::stop();
@@ -206,6 +212,11 @@ void Porkchop::setMode(PorkchopMode mode) {
             Avatar::setState(AvatarState::HUNTING);
             SDLog::log("PORK", "Mode: OINK (DoNoHam: %s)", Config::wifi().doNoHam ? "ON" : "OFF");
             OinkMode::start();
+            break;
+        case PorkchopMode::DNH_MODE:
+            Avatar::setState(AvatarState::NEUTRAL);  // Calm, passive state
+            SDLog::log("PORK", "Mode: DO NO HAM");
+            DoNoHamMode::start();
             break;
         case PorkchopMode::WARHOG_MODE:
             Avatar::setState(AvatarState::EXCITED);
@@ -344,6 +355,7 @@ void Porkchop::handleInput() {
         }
         // In active modes: go to IDLE
         if (currentMode == PorkchopMode::OINK_MODE ||
+            currentMode == PorkchopMode::DNH_MODE ||
             currentMode == PorkchopMode::WARHOG_MODE ||
             currentMode == PorkchopMode::PIGGYBLUES_MODE ||
             currentMode == PorkchopMode::SPECTRUM_MODE) {
@@ -502,6 +514,9 @@ void Porkchop::updateMode() {
     switch (currentMode) {
         case PorkchopMode::OINK_MODE:
             OinkMode::update();
+            break;
+        case PorkchopMode::DNH_MODE:
+            DoNoHamMode::update();
             break;
         case PorkchopMode::WARHOG_MODE:
             WarhogMode::update();
