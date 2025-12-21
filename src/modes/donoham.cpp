@@ -444,6 +444,26 @@ void DoNoHamMode::saveAllPMKIDs() {
             }
         }
         
+        // Try to backfill SSID from companion txt file (cross-mode compatibility)
+        if (p.ssid[0] == 0) {
+            char txtPath[64];
+            snprintf(txtPath, sizeof(txtPath), "/handshakes/%02X%02X%02X%02X%02X%02X_pmkid.txt",
+                     p.bssid[0], p.bssid[1], p.bssid[2], p.bssid[3], p.bssid[4], p.bssid[5]);
+            if (SD.exists(txtPath)) {
+                File txtFile = SD.open(txtPath, FILE_READ);
+                if (txtFile) {
+                    String ssid = txtFile.readStringUntil('\n');
+                    ssid.trim();
+                    if (ssid.length() > 0) {
+                        strncpy(p.ssid, ssid.c_str(), 32);
+                        p.ssid[32] = 0;
+                        Serial.printf("[DNH] PMKID SSID backfilled from txt: %s\n", p.ssid);
+                    }
+                    txtFile.close();
+                }
+            }
+        }
+        
         // Can only save if we have SSID
         if (p.ssid[0] == 0) continue;
         
@@ -497,6 +517,16 @@ void DoNoHamMode::saveAllPMKIDs() {
         f.printf("WPA*01*%s*%s*%s*%s***01\n", pmkidHex, macAP, macClient, essidHex);
         f.close();
         
+        // Save SSID to companion txt file (matches OINK pattern)
+        char txtFilename[64];
+        snprintf(txtFilename, sizeof(txtFilename), "/handshakes/%02X%02X%02X%02X%02X%02X_pmkid.txt",
+                 p.bssid[0], p.bssid[1], p.bssid[2], p.bssid[3], p.bssid[4], p.bssid[5]);
+        File txtFile = SD.open(txtFilename, FILE_WRITE);
+        if (txtFile) {
+            txtFile.println(p.ssid);
+            txtFile.close();
+        }
+        
         p.saved = true;
         Serial.printf("[DNH] PMKID saved: %s\n", filename);
         SDLog::log("DNH", "PMKID saved: %s (%s)", p.ssid, filename);
@@ -515,6 +545,26 @@ void DoNoHamMode::saveAllHandshakes() {
             if (netIdx >= 0 && networks[netIdx].ssid[0] != 0) {
                 strncpy(hs.ssid, networks[netIdx].ssid, 32);
                 hs.ssid[32] = 0;
+            }
+        }
+        
+        // Try to backfill SSID from companion txt file (cross-mode compatibility)
+        if (hs.ssid[0] == 0) {
+            char txtPath[64];
+            snprintf(txtPath, sizeof(txtPath), "/handshakes/%02X%02X%02X%02X%02X%02X.txt",
+                     hs.bssid[0], hs.bssid[1], hs.bssid[2], hs.bssid[3], hs.bssid[4], hs.bssid[5]);
+            if (SD.exists(txtPath)) {
+                File txtFile = SD.open(txtPath, FILE_READ);
+                if (txtFile) {
+                    String ssid = txtFile.readStringUntil('\n');
+                    ssid.trim();
+                    if (ssid.length() > 0) {
+                        strncpy(hs.ssid, ssid.c_str(), 32);
+                        hs.ssid[32] = 0;
+                        Serial.printf("[DNH] Handshake SSID backfilled from txt: %s\n", hs.ssid);
+                    }
+                    txtFile.close();
+                }
             }
         }
         
@@ -614,6 +664,16 @@ void DoNoHamMode::saveAllHandshakes() {
         
         free(eapolHex);
         f.close();
+        
+        // Save SSID to companion txt file (matches OINK pattern)
+        char txtFilename[64];
+        snprintf(txtFilename, sizeof(txtFilename), "/handshakes/%02X%02X%02X%02X%02X%02X.txt",
+                 hs.bssid[0], hs.bssid[1], hs.bssid[2], hs.bssid[3], hs.bssid[4], hs.bssid[5]);
+        File txtFile = SD.open(txtFilename, FILE_WRITE);
+        if (txtFile) {
+            txtFile.println(hs.ssid);
+            txtFile.close();
+        }
         
         hs.saved = true;
         Serial.printf("[DNH] Handshake saved: %s\n", filename);
