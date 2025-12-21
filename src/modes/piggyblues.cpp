@@ -603,20 +603,16 @@ void PiggyBluesMode::update() {
     // Refresh active target selection (sorted by RSSI)
     selectActiveTargets();
     
-    // Opportunistic payload burst - pause scan briefly, advertise, resume
+    // Send payload burst - NO scan stop/start (that was causing 120ms+ lag every burst)
+    // BLE stack can handle concurrent scan+advertise, just brief interference
     if (now - lastBurstTime >= burstInterval) {
-        // Stop scan briefly for advertising (use stopContinuousScan for consistent state)
-        stopContinuousScan();
         advertisingNow = true;
         
-        // Send payload
+        // Send payload (sendRandomPayload already checks isAdvertising before starting)
         sendRandomPayload();
         
         advertisingNow = false;
         lastBurstTime = now;
-        
-        // Resume continuous scan
-        startContinuousScan();
     }
     
     // Update mood occasionally with target info

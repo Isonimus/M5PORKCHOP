@@ -223,7 +223,7 @@ void Display::drawTopBar() {
             modeColor = COLOR_ACCENT;
             break;
         case PorkchopMode::WARHOG_MODE:
-            modeStr = "WARHOG";
+            modeStr = "SGT WARHOG";
             modeColor = COLOR_DANGER;
             break;
         case PorkchopMode::PIGGYBLUES_MODE:
