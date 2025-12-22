@@ -913,6 +913,18 @@ void OinkMode::update() {
         for (auto it = networks.begin(); it != networks.end();) {
             if (now - it->lastSeen > staleTimeout) {
                 it = networks.erase(it);
+                
+                // Immediate defensive revalidation after erase
+                // Prevents stale indices if vector reallocates during cleanup
+                if (targetIndex >= (int)networks.size()) {
+                    targetIndex = -1;
+                    deauthing = false;
+                    channelHopping = true;
+                    memset(targetBssid, 0, 6);
+                }
+                if (selectionIndex >= (int)networks.size() && !networks.empty()) {
+                    selectionIndex = networks.size() - 1;
+                }
             } else {
                 ++it;
             }
