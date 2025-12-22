@@ -10,7 +10,7 @@
 #include "../ml/features.h"
 
 // Maximum clients to track per network
-#define MAX_CLIENTS_PER_NETWORK 8
+#define MAX_CLIENTS_PER_NETWORK 20  // Dense environment support (conferences, airports)
 
 struct DetectedClient {
     uint8_t mac[6];
@@ -52,6 +52,7 @@ struct CapturedHandshake {
     uint32_t firstSeen;
     uint32_t lastSeen;
     bool saved;  // Already saved to SD
+    uint8_t saveAttempts;  // Number of save attempts (0-3, then give up)
     uint8_t* beaconData;   // Beacon frame for this AP
     uint16_t beaconLen;    // Beacon frame length
     
@@ -83,6 +84,7 @@ struct CapturedPMKID {
     uint8_t pmkid[16];
     uint32_t timestamp;
     bool saved;
+    uint8_t saveAttempts;  // Number of save attempts (0-3, then give up)
 };
 
 class OinkMode {

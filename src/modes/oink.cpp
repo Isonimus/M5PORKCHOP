@@ -138,6 +138,7 @@ uint8_t currentHopIndex = 0;
 const size_t MAX_NETWORKS = 200;       // Max tracked networks
 const size_t MAX_HANDSHAKES = 50;      // Max handshakes (each can be large)
 const size_t MAX_PMKIDS = 50;          // Max PMKIDs (smaller than handshakes)
+const uint16_t MAX_BEACON_SIZE = 1500; // IEEE 802.11 practical limit (protect against oversized/malformed frames)
 
 // Deauth timing
 static uint32_t lastDeauthTime = 0;
@@ -1140,6 +1141,11 @@ void OinkMode::processBeacon(const uint8_t* payload, uint16_t len, int8_t rssi) 
                 free(beaconFrame);
                 beaconFrame = nullptr;
             }
+            // Validate beacon size before allocation (protect against oversized/malformed frames)
+            if (len > MAX_BEACON_SIZE) {
+                queueLog("[OINK] Beacon too large (%d bytes), skipping", len);
+                return;  // Drop oversized beacon, not a crash risk
+            }
             // Allocate and copy beacon frame
             beaconFrame = (uint8_t*)malloc(len);
             if (beaconFrame) {
@@ -1682,11 +1688,12 @@ int OinkMode::findOrCreateHandshakeSafe(const uint8_t* bssid, const uint8_t* sta
     hs.firstSeen = millis();
     hs.lastSeen = millis();
     hs.saved = false;
+    hs.saveAttempts = 0;  // Start with no attempts
     hs.beaconData = nullptr;
     hs.beaconLen = 0;
     
     // Attach beacon if available
-    if (beaconCaptured && beaconFrame && beaconFrameLen > 0) {
+    if (beaconCaptured && beaconFrame && beaconFrameLen > 0 && beaconFrameLen <= MAX_BEACON_SIZE) {
         const uint8_t* beaconBssid = beaconFrame + 16;
         if (memcmp(beaconBssid, bssid, 6) == 0) {
             hs.beaconData = (uint8_t*)malloc(beaconFrameLen);
@@ -1723,6 +1730,7 @@ int OinkMode::findOrCreatePMKIDSafe(const uint8_t* bssid, const uint8_t* station
     memcpy(p.station, station, 6);
     p.timestamp = millis();
     p.saved = false;
+    p.saveAttempts = 0;  // Start with no attempts
     
     pmkids.push_back(p);
     return pmkids.size() - 1;
@@ -1777,7 +1785,16 @@ void OinkMode::autoSaveCheck() {
     
     // Save any unsaved complete handshakes
     for (auto& hs : handshakes) {
-        if (hs.isComplete() && !hs.saved) {
+        if (hs.isComplete() && !hs.saved && hs.saveAttempts < 3) {
+            // Check backoff timer (exponential: 0s, 2s, 5s, then give up)
+            static const uint32_t backoffMs[] = {0, 2000, 5000};
+            uint32_t timeSinceCapture = millis() - hs.lastSeen;
+            if (timeSinceCapture < backoffMs[hs.saveAttempts]) {
+                continue;  // Wait for backoff period
+            }
+            
+            hs.saveAttempts++;  // Increment before attempt
+            
             // Generate filename
             char filename[64];
             snprintf(filename, sizeof(filename), "/handshakes/%02X%02X%02X%02X%02X%02X.pcap",
@@ -1816,7 +1833,15 @@ void OinkMode::autoSaveCheck() {
                     txtFile.println(hs.ssid);
                     txtFile.close();
                 }
+            } else if (hs.saveAttempts >= 3) {
+                // Failed 3 times - give up to prevent infinite retry
+                Serial.printf("[OINK] Failed to save %s after 3 attempts (SD issue?)\n", hs.ssid);
+                SDLog::log("OINK", "Save failed after 3 attempts: %s (kept in RAM)", hs.ssid);
+                hs.saved = true;  // Mark as done to stop retries (data still in RAM)
             }
+            
+            // Yield to watchdog/scheduler after each save (prevents WDT during mass saves)
+            delay(1);
         }
     }
     
@@ -2161,7 +2186,16 @@ bool OinkMode::saveAllPMKIDs() {
         
         // SSID is required - PMK = PBKDF2(passphrase, SSID), so no SSID = uncrackable
         // Keep in memory for later retry if SSID is found
-        if (!p.saved && p.ssid[0] != 0) {
+        if (!p.saved && p.ssid[0] != 0 && p.saveAttempts < 3) {
+            // Check backoff timer (exponential: 0s, 2s, 5s, then give up)
+            static const uint32_t backoffMs[] = {0, 2000, 5000};
+            uint32_t timeSinceCapture = millis() - p.timestamp;
+            if (timeSinceCapture < backoffMs[p.saveAttempts]) {
+                continue;  // Wait for backoff period
+            }
+            
+            p.saveAttempts++;  // Increment before attempt
+            
             // Use BSSID-based filename in /handshakes/ (same as handshakes, but .22000 extension)
             char filename[64];
             snprintf(filename, sizeof(filename), "/handshakes/%02X%02X%02X%02X%02X%02X.22000",
@@ -2183,9 +2217,18 @@ bool OinkMode::saveAllPMKIDs() {
                     txtFile.println(p.ssid);
                     txtFile.close();
                 }
+            } else if (p.saveAttempts >= 3) {
+                // Failed 3 times - give up to prevent infinite retry
+                Serial.printf("[OINK] Failed to save PMKID %s after 3 attempts (SD issue?)\n", p.ssid);
+                SDLog::log("OINK", "PMKID save failed after 3 attempts: %s (kept in RAM)", p.ssid);
+                p.saved = true;  // Mark as done to stop retries (data still in RAM)
+                success = false;
             } else {
                 success = false;
             }
+            
+            // Yield to watchdog/scheduler after each save
+            delay(1);
         }
     }
     return success;
@@ -2348,6 +2391,25 @@ void OinkMode::trackClient(const uint8_t* bssid, const uint8_t* clientMac, int8_
             net.clients[i].rssi = rssi;
             net.clients[i].lastSeen = millis();
             return;
+        }
+    }
+    
+    // LRU eviction: if at capacity, evict stalest client (not seen in 30s)
+    if (net.clientCount >= MAX_CLIENTS_PER_NETWORK) {
+        int stalestIdx = -1;
+        uint32_t oldestTime = millis();
+        for (int i = 0; i < net.clientCount; i++) {
+            if (net.clients[i].lastSeen < oldestTime) {
+                oldestTime = net.clients[i].lastSeen;
+                stalestIdx = i;
+            }
+        }
+        // Evict stale client (>30s old) to make room
+        if (stalestIdx >= 0 && (millis() - oldestTime > 30000)) {
+            net.clients[stalestIdx] = net.clients[net.clientCount - 1];
+            net.clientCount--;
+        } else {
+            return;  // All clients fresh, give up
         }
     }
     
