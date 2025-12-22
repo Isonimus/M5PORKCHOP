@@ -164,7 +164,7 @@ static uint32_t attackStartTime = 0;
 static const uint32_t SCAN_TIME = 5000;         // 5 sec initial scan
 // LOCK_TIME now uses SwineStats::getLockTime() for class buff support
 static const uint32_t ATTACK_TIMEOUT = 15000;   // 15 sec per target
-static const uint32_t WAIT_TIME = 4500;         // 4.5 sec between targets (allows late EAPOL M3/M4)
+static const uint32_t WAIT_TIME = 8000;         // 8 sec between targets (allows late EAPOL M3/M4, extended for debugging)
 static const uint32_t BORED_RETRY_TIME = 30000; // 30 sec between retry scans when bored
 static const uint32_t BORED_THRESHOLD = 3;      // Failed target attempts before bored
 
@@ -836,9 +836,9 @@ void OinkMode::update() {
                     DetectedNetwork* target = &networks[targetIndex];
                     Mood::onDeauthing(target->ssid, deauthCount);
                     
-                    // Log attack status including client count
-                    Serial.printf("[OINK] Attacking %s: %d deauths, %d clients tracked\n",
-                                 target->ssid, deauthCount, target->clientCount);
+                    // Log attack status including client count and CHANNEL
+                    Serial.printf("[OINK] Attacking %s: %d deauths, %d clients tracked [CH%d LOCKED]\n",
+                                 target->ssid, deauthCount, target->clientCount, currentChannel);
                 }
                 lastMoodUpdate = now;
             }
@@ -867,8 +867,9 @@ void OinkMode::update() {
             
             // Timeout - move to next target
             if (now - attackStartTime > ATTACK_TIMEOUT) {
-                Serial.printf("[OINK] Timeout on %s, moving to next\n", 
-                    (targetIndex >= 0 && targetIndex < (int)networks.size()) ? networks[targetIndex].ssid : "?");
+                Serial.printf("[OINK] Timeout on %s, moving to WAITING [CH%d STAYS LOCKED]\n", 
+                    (targetIndex >= 0 && targetIndex < (int)networks.size()) ? networks[targetIndex].ssid : "?",
+                    currentChannel);
                 autoState = AutoState::WAITING;
                 stateStartTime = now;
                 deauthing = false;
@@ -879,6 +880,14 @@ void OinkMode::update() {
             
         case AutoState::WAITING:
             // Brief pause between attacks - keep channel locked for late EAPOL frames
+            // Log once at entry
+            static bool waitingLogShown = false;
+            if (!waitingLogShown || (now - stateStartTime < 100)) {
+                Serial.printf("[OINK DEBUG] WAITING for late EAPOL frames [CH%d LOCKED, %dms window]\n",
+                             currentChannel, WAIT_TIME);
+                waitingLogShown = true;
+            }
+            
             if (now - stateStartTime > WAIT_TIME) {
                 // Check for incomplete handshake only once at WAIT_TIME threshold
                 // to avoid repeated vector iteration overhead
@@ -907,6 +916,7 @@ void OinkMode::update() {
                 checkedForPendingHandshake = false;
                 hasPendingHandshake = false;
                 autoState = AutoState::NEXT_TARGET;
+                Serial.printf("[OINK DEBUG] WAITING complete, moving to NEXT_TARGET [CH%d]\n", currentChannel);
             }
             break;
             
@@ -1496,6 +1506,9 @@ void OinkMode::processDataFrame(const uint8_t* payload, uint16_t len, int8_t rss
         const uint8_t* srcMac = payload + 10;  // TA
         const uint8_t* dstMac = payload + 4;   // RA
         
+        Serial.printf("[OINK DEBUG] EAPOL detected! src=%02X:%02X:...:%02X dst=%02X:%02X:...:%02X len=%d offset=%d\n",
+                     srcMac[0], srcMac[1], srcMac[5], dstMac[0], dstMac[1], dstMac[5], len, offset);
+        
         processEAPOL(payload + offset + 8, len - offset - 8, srcMac, dstMac);
     }
 }
@@ -1523,6 +1536,9 @@ void OinkMode::processEAPOL(const uint8_t* payload, uint16_t len,
     else if (!keyAck && keyMic && !secure) messageNum = 2;  // M2: has MIC, not secure (M4 is secure)
     else if (keyAck && keyMic && install) messageNum = 3;
     else if (!keyAck && keyMic && secure) messageNum = 4;
+    
+    Serial.printf("[OINK DEBUG] EAPOL-Key: keyInfo=0x%04X msgNum=%d keyAck=%d keyMic=%d secure=%d install=%d\n",
+                 keyInfo, messageNum, keyAck, keyMic, secure, install);
     
     if (messageNum == 0) return;
     
