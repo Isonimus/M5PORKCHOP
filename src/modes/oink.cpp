@@ -996,6 +996,29 @@ void OinkMode::update() {
         } else if (networks.empty()) {
             selectionIndex = 0;
         }
+        
+        // Emergency heap recovery - aggressive cleanup if critically low
+        if (ESP.getFreeHeap() < HEAP_MIN_THRESHOLD) {
+            Serial.printf("[OINK] Emergency heap recovery! Free: %lu, Networks: %d\n",
+                         (unsigned long)ESP.getFreeHeap(), (int)networks.size());
+            
+            // Aggressively clear down to 50 networks (keep most recent)
+            while (networks.size() > 50 && ESP.getFreeHeap() < HEAP_MIN_THRESHOLD) {
+                // Remove oldest network (front of vector = oldest lastSeen after sort)
+                networks.erase(networks.begin());
+            }
+            
+            // Reset all indices after aggressive cleanup
+            targetIndex = -1;
+            selectionIndex = 0;
+            deauthing = false;
+            channelHopping = true;
+            memset(targetBssid, 0, 6);
+            
+            Serial.printf("[OINK] Recovery complete - Networks: %d, Heap: %lu\n",
+                         (int)networks.size(), (unsigned long)ESP.getFreeHeap());
+        }
+        
         lastCleanupTime = now;
         
         // Periodic heap monitoring for debugging memory issues
