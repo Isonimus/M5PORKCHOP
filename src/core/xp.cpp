@@ -3,6 +3,7 @@
 #include "xp.h"
 #include "sdlog.h"
 #include "config.h"
+#include "challenges.h"
 #include "../ui/display.h"
 #include "../ui/swine_stats.h"
 #include <M5Unified.h>
@@ -477,6 +478,9 @@ void XP::startSession() {
     session.startTime = millis();
     lastKmAwarded = 0;  // Reset km counter for new session
     data.sessions++;
+    
+    // pig wakes. pig demands action.
+    Challenges::generate();
 }
 
 void XP::endSession() {
@@ -621,6 +625,9 @@ void XP::addXP(XPEvent event) {
         default:
             break;
     }
+    
+    // pig tracks your labor (challenges progress)
+    Challenges::onXPEvent(event);
     
     // Apply capture XP multiplier for handshakes/PMKIDs (class buff: CR4CK_NOSE)
     if (event == XPEvent::HANDSHAKE_CAPTURED || event == XPEvent::PMKID_CAPTURED) {
@@ -936,6 +943,25 @@ void XP::unlockAchievement(PorkAchievement ach) {
     
     Serial.printf("[XP] Achievement unlocked: %s\n", ACHIEVEMENT_NAMES[idx]);
     SDLog::log("XP", "Achievement: %s", ACHIEVEMENT_NAMES[idx]);
+    
+    // pig earned a badge. pig deserves fanfare.
+    // but only if system is fully booted (Display ready)
+    if (initialized) {
+        char toastMsg[48];
+        snprintf(toastMsg, sizeof(toastMsg), "* %s *", ACHIEVEMENT_NAMES[idx]);
+        Display::showToast(toastMsg);
+        
+        // distinct jingle - different from level-up and class promotion
+        if (Config::personality().soundEnabled) {
+            M5.Speaker.tone(600, 80);
+            delay(100);
+            M5.Speaker.tone(900, 80);
+            delay(100);
+            M5.Speaker.tone(1200, 120);
+        }
+        
+        delay(500);  // let user read the toast
+    }
     
     // Save immediately to persist the achievement
     save();
