@@ -12,3 +12,4 @@ release_notes/
 .github/copilot-instructions.md
 temp/
 docs/secret/lol_this_is_my_gitignore.txt
+secret/it_ignores_what_i_tell_it.txt
