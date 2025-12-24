@@ -7,8 +7,8 @@
 src/build_info.h
 m5porkchop_builds/
 porkchop_*.bins
-
+secret/you_do_not_look_at_commits_right.txt
 release_notes/
 .github/copilot-instructions.md
 temp/
-docs/
+docs/secret/lol_this_is_my_gitignore.txt
