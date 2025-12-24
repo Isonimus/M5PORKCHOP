@@ -14,6 +14,34 @@
 #include "../piglet/avatar.h"
 #include <SD.h>
 
+// PCAP file format structures (same as OINK for WPA-SEC compatibility)
+#pragma pack(push, 1)
+struct DNH_PCAPHeader {
+    uint32_t magic;
+    uint16_t version_major;
+    uint16_t version_minor;
+    int32_t thiszone;
+    uint32_t sigfigs;
+    uint32_t snaplen;
+    uint32_t linktype;
+};
+
+struct DNH_PCAPPacketHeader {
+    uint32_t ts_sec;
+    uint32_t ts_usec;
+    uint32_t incl_len;
+    uint32_t orig_len;
+};
+#pragma pack(pop)
+
+// Minimal radiotap header (8 bytes) - required for WPA-SEC
+static const uint8_t DNH_RADIOTAP_HEADER[] = {
+    0x00,       // Header revision
+    0x00,       // Header pad
+    0x08, 0x00, // Header length (8, little-endian)
+    0x00, 0x00, 0x00, 0x00  // Present flags (no optional fields)
+};
+
 // Static member initialization
 bool DoNoHamMode::running = false;
 DNHState DoNoHamMode::state = DNHState::HOPPING;
@@ -26,6 +54,15 @@ bool DoNoHamMode::dwellResolved = false;
 std::vector<DetectedNetwork> DoNoHamMode::networks;
 std::vector<CapturedPMKID> DoNoHamMode::pmkids;
 std::vector<CapturedHandshake> DoNoHamMode::handshakes;
+
+// Adaptive state machine
+ChannelStats DoNoHamMode::channelStats[13] = {};
+std::vector<IncompleteHS> DoNoHamMode::incompleteHandshakes;
+uint32_t DoNoHamMode::huntStartTime = 0;
+uint32_t DoNoHamMode::lastHuntTime = 0;
+uint8_t DoNoHamMode::lastHuntChannel = 0;
+uint32_t DoNoHamMode::lastStatsDecay = 0;
+uint8_t DoNoHamMode::lastCycleActivity = 0;
 
 // Guard flag for race condition prevention
 static volatile bool dnhBusy = false;
@@ -46,21 +83,25 @@ struct PendingPMKIDCreate {
 };
 static PendingPMKIDCreate pendingPMKIDCreate;
 
-// Single-slot deferred handshake frame add
+// Single-slot deferred handshake frame add (now stores all 4 frames)
 static volatile bool pendingHandshakeAdd = false;
 static volatile bool pendingHandshakeBusy = false;
 struct PendingHandshakeFrame {
     uint8_t bssid[6];
     uint8_t station[6];
-    uint8_t messageNum;
-    uint8_t frameData[512];
-    uint16_t frameLen;
+    uint8_t messageNum;  // DEPRECATED - kept for compatibility
+    EAPOLFrame frames[4];  // Store all 4 EAPOL frames (M1-M4)
+    uint8_t capturedMask;  // Bitmask: bit0=M1, bit1=M2, bit2=M3, bit3=M4
 };
 static PendingHandshakeFrame pendingHandshake;
 
 // Handshake capture event for UI
 static volatile bool pendingHandshakeCapture = false;
 static char pendingHandshakeSSID[33] = {0};
+
+// Deferred save flag - set during update(), processed in stop() after promiscuous disabled
+// Avoids SD/WiFi SPI bus contention that can cause crashes
+static volatile bool pendingSaveFlag = false;
 
 // Channel order: 1, 6, 11 first (non-overlapping), then fill in
 static const uint8_t CHANNEL_ORDER[] = {1, 6, 11, 2, 7, 12, 3, 8, 13, 4, 9, 5, 10};
@@ -87,6 +128,19 @@ void DoNoHamMode::start() {
     pmkids.shrink_to_fit();
     handshakes.clear();
     handshakes.shrink_to_fit();
+    incompleteHandshakes.clear();
+    incompleteHandshakes.shrink_to_fit();
+    
+    // Initialize channel stats
+    for (int i = 0; i < 13; i++) {
+        channelStats[i].channel = CHANNEL_ORDER[i];
+        channelStats[i].beaconCount = 0;
+        channelStats[i].eapolCount = 0;
+        channelStats[i].lastActivity = 0;
+        channelStats[i].priority = 100;  // Baseline
+        channelStats[i].deadStreak = 0;
+        channelStats[i].lifetimeBeacons = 0;
+    }
     
     // Reset state
     state = DNHState::HOPPING;
@@ -96,6 +150,11 @@ void DoNoHamMode::start() {
     lastCleanupTime = millis();
     lastSaveTime = millis();
     lastMoodTime = millis();
+    lastStatsDecay = millis();
+    lastCycleActivity = 0;
+    huntStartTime = 0;
+    lastHuntTime = 0;
+    lastHuntChannel = 0;
     dwellResolved = false;
     
     // Reset deferred flags
@@ -182,9 +241,21 @@ void DoNoHamMode::stop() {
     // Disable promiscuous mode
     esp_wifi_set_promiscuous(false);
     
-    // Save any unsaved data
+    // Process any deferred XP saves now that WiFi is off
+    XP::processPendingSave();
+    
+    // Process deferred capture saves now that WiFi is off (SPI bus safe)
+    pendingSaveFlag = false;  // Clear flag before processing
     saveAllPMKIDs();
     saveAllHandshakes();
+    
+    // Free per-handshake beacon memory to prevent leaks
+    for (auto& hs : handshakes) {
+        if (hs.beaconData) {
+            free(hs.beaconData);
+            hs.beaconData = nullptr;
+        }
+    }
     
     // Clear vectors
     dnhBusy = true;
@@ -214,13 +285,21 @@ void DoNoHamMode::stopSeamless() {
     SDLog::log("DNH", "Seamless stop");
     
     running = false;
+    dnhBusy = false;  // Reset busy flag for clean handoff
     
     // DON'T disable promiscuous mode - OINK will take over
     // DON'T clear vectors - let them die naturally
+    // DON'T save to SD - promiscuous still active, SPI bus contention risk
+    // Data remains in RAM, will be saved when mode fully exits via stop()
+    pendingSaveFlag = true;  // Mark for save when WiFi eventually stops
     
-    // Save any unsaved data
-    saveAllPMKIDs();
-    saveAllHandshakes();
+    // Free beacon memory since OINK will recapture its own
+    for (auto& hs : handshakes) {
+        if (hs.beaconData) {
+            free(hs.beaconData);
+            hs.beaconData = nullptr;
+        }
+    }
 }
 
 void DoNoHamMode::update() {
@@ -241,6 +320,12 @@ void DoNoHamMode::update() {
                 networks[idx].rssi = pendingNetwork.rssi;
                 networks[idx].lastSeen = pendingNetwork.lastSeen;
                 networks[idx].beaconCount++;
+                // Backfill SSID if we didn't have it before (critical for PMKID save)
+                if (networks[idx].ssid[0] == 0 && pendingNetwork.ssid[0] != 0) {
+                    strncpy(networks[idx].ssid, pendingNetwork.ssid, 32);
+                    networks[idx].ssid[32] = 0;
+                    Serial.printf("[DNH] SSID backfilled for existing network: %s\n", networks[idx].ssid);
+                }
             } else {
                 // Add new
                 networks.push_back(pendingNetwork);
@@ -283,17 +368,21 @@ void DoNoHamMode::update() {
                     pmkids[idx].ssid[32] = 0;
                     pmkids[idx].timestamp = now;
                     
-                    // Announce capture
+                    // Announce capture + immediate safe save
                     if (pendingPMKIDCreate.ssid[0] != 0) {
                         Serial.printf("[DNH] PMKID captured: %s\n", pendingPMKIDCreate.ssid);
                         Display::showToast("BOOMBOCLAAT! PMKID");
-                        M5.Speaker.tone(880, 100);
-                        delay(50);
-                        M5.Speaker.tone(1100, 100);
-                        delay(50);
-                        M5.Speaker.tone(1320, 100);
-                        XP::addXP(XPEvent::DNH_PMKID_GHOST);
-                        Mood::onPMKIDCaptured();
+                        if (Config::personality().soundEnabled) {
+                            M5.Speaker.tone(880, 100);
+                        }
+                        // XP awarded via Mood::onPMKIDCaptured (don't double award)
+                        Mood::onPMKIDCaptured(pendingPMKIDCreate.ssid);
+                        
+                        // Immediate save with brief promiscuous pause (safe SD access)
+                        esp_wifi_set_promiscuous(false);
+                        delay(5);
+                        saveAllPMKIDs();
+                        esp_wifi_set_promiscuous(true);
                     } else {
                         Serial.println("[DNH] PMKID captured but SSID unknown");
                     }
@@ -311,7 +400,7 @@ void DoNoHamMode::update() {
         }
     }
     
-    // Process deferred handshake frame add
+    // Process deferred handshake frame add (batch process all queued frames)
     if (pendingHandshakeAdd && !pendingHandshakeBusy) {
         pendingHandshakeBusy = true;
         
@@ -319,60 +408,97 @@ void DoNoHamMode::update() {
         int hsIdx = findOrCreateHandshake(pendingHandshake.bssid, pendingHandshake.station);
         if (hsIdx >= 0) {
             CapturedHandshake& hs = handshakes[hsIdx];
-            uint8_t frameIdx = pendingHandshake.messageNum - 1;
             
-            // Store frame data
-            uint16_t copyLen = min((uint16_t)512, pendingHandshake.frameLen);
-            memcpy(hs.frames[frameIdx].data, pendingHandshake.frameData, copyLen);
-            hs.frames[frameIdx].len = copyLen;
-            hs.frames[frameIdx].messageNum = pendingHandshake.messageNum;
-            hs.frames[frameIdx].timestamp = now;
+            // Process ALL queued frames (M1-M4) from capturedMask
+            for (int msgIdx = 0; msgIdx < 4; msgIdx++) {
+                if (pendingHandshake.capturedMask & (1 << msgIdx)) {
+                    // Frame is present in the queued data
+                    if (hs.frames[msgIdx].len == 0) {  // Not already captured
+                        uint16_t copyLen = pendingHandshake.frames[msgIdx].len;
+                        if (copyLen > 0 && copyLen <= 512) {
+                            // EAPOL payload for hashcat 22000
+                            memcpy(hs.frames[msgIdx].data, pendingHandshake.frames[msgIdx].data, copyLen);
+                            hs.frames[msgIdx].len = copyLen;
+                            hs.frames[msgIdx].messageNum = msgIdx + 1;
+                            hs.frames[msgIdx].timestamp = now;
+                            
+                            // Full 802.11 frame for PCAP export (radiotap + WPA-SEC)
+                            uint16_t fullCopyLen = pendingHandshake.frames[msgIdx].fullFrameLen;
+                            if (fullCopyLen > 0 && fullCopyLen <= 300) {
+                                memcpy(hs.frames[msgIdx].fullFrame, pendingHandshake.frames[msgIdx].fullFrame, fullCopyLen);
+                                hs.frames[msgIdx].fullFrameLen = fullCopyLen;
+                                hs.frames[msgIdx].rssi = pendingHandshake.frames[msgIdx].rssi;
+                            }
+                            
+                            hs.capturedMask |= (1 << msgIdx);
+                            hs.lastSeen = now;
+                            
+                            Serial.printf("[DNH] M%d captured (deferred)\n", msgIdx + 1);
+                        }
+                    }
+                }
+            }
             
-            // Update mask
-            hs.capturedMask |= (1 << frameIdx);
-            hs.lastSeen = now;
+            // Look up SSID if missing
+            if (hs.ssid[0] == 0) {
+                int netIdx = findNetwork(hs.bssid);
+                if (netIdx >= 0 && networks[netIdx].ssid[0] != 0) {
+                    strncpy(hs.ssid, networks[netIdx].ssid, 32);
+                    hs.ssid[32] = 0;
+                }
+            }
             
             // Check if we just completed a valid pair
             if (hs.hasValidPair() && !hs.saved && !pendingHandshakeCapture) {
-                // Look up SSID if missing
-                if (hs.ssid[0] == 0) {
-                    int netIdx = findNetwork(hs.bssid);
-                    if (netIdx >= 0 && networks[netIdx].ssid[0] != 0) {
-                        strncpy(hs.ssid, networks[netIdx].ssid, 32);
-                        hs.ssid[32] = 0;
-                    }
-                }
-                
                 strncpy(pendingHandshakeSSID, hs.ssid, 32);
                 pendingHandshakeSSID[32] = 0;
                 pendingHandshakeCapture = true;
                 
-                Serial.printf("[DNH] Handshake complete: %s (M%d captured)\n", 
-                    hs.ssid[0] ? hs.ssid : "?", pendingHandshake.messageNum);
+                Serial.printf("[DNH] Handshake complete: %s\n", 
+                    hs.ssid[0] ? hs.ssid : "?");
             }
         }
         
+        // Clear slot for next handshake
+        pendingHandshake.capturedMask = 0;
         pendingHandshakeAdd = false;
         pendingHandshakeBusy = false;
     }
     
-    // Process handshake capture event (UI update)
+    // Process handshake capture event (UI update + immediate safe save)
     if (pendingHandshakeCapture) {
         Display::showToast("NATURAL HANDSHAKE BLESSED - RESPECT DI HERB");
-        M5.Speaker.tone(880, 100);
-        delay(50);
-        M5.Speaker.tone(1320, 100);
-        XP::addXP(XPEvent::HANDSHAKE_CAPTURED);
-        Mood::onHandshakeCaptured();
+        if (Config::personality().soundEnabled) {
+            M5.Speaker.tone(880, 100);
+        }
+        // XP awarded via Mood::onHandshakeCaptured (don't double award)
+        Mood::onHandshakeCaptured(pendingHandshakeSSID);
         pendingHandshakeCapture = false;
+        
+        // Immediate save with brief promiscuous pause (safe SD access)
+        // ~50ms gap is acceptable - we just captured what we needed
+        esp_wifi_set_promiscuous(false);
+        delay(5);  // Let SPI bus settle
+        saveAllHandshakes();
+        esp_wifi_set_promiscuous(true);
     }
     
     // Channel hopping state machine
     switch (state) {
         case DNHState::HOPPING:
-            if (now - lastHopTime > DNH_HOP_INTERVAL) {
-                hopToNextChannel();
-                lastHopTime = now;
+            {
+                uint32_t hopDelay = getAdaptiveHopDelay();
+                if (now - lastHopTime > hopDelay) {
+                    hopToNextChannel();
+                    lastHopTime = now;
+                    
+                    // Check if we should enter HUNTING mode after hop
+                    bool enteredHunting = checkHuntingTrigger();
+                    if (!enteredHunting) {
+                        // Check if all channels are dead -> IDLE_SWEEP
+                        checkIdleSweep();
+                    }
+                }
             }
             break;
             
@@ -382,17 +508,53 @@ void DoNoHamMode::update() {
                 dwellResolved = false;
             }
             break;
+            
+        case DNHState::HUNTING:
+            if (now - huntStartTime > HUNT_DURATION) {
+                // Hunt timeout, return to hopping
+                state = DNHState::HOPPING;
+                lastHuntTime = now;
+                lastHuntChannel = currentChannel;
+            }
+            // HUNTING state deliberately does NOT hop - camps on hot channel
+            break;
+            
+        case DNHState::IDLE_SWEEP:
+            {
+                uint32_t peekDelay = IDLE_SWEEP_TIME;
+                if (now - lastHopTime > peekDelay) {
+                    hopToNextChannel();
+                    lastHopTime = now;
+                    
+                    // If we see ANY activity, exit IDLE_SWEEP
+                    int idx = currentChannel - 1;
+                    if (idx >= 0 && idx < 13) {
+                        if (channelStats[idx].beaconCount > 0) {
+                            state = DNHState::HOPPING;
+                        }
+                    }
+                }
+            }
+            break;
     }
     
     // Periodic cleanup (every 10 seconds)
     if (now - lastCleanupTime > 10000) {
         ageOutStaleNetworks();
+        pruneIncompleteHandshakes(); // Also prune stale handshake tracking
         lastCleanupTime = now;
     }
     
-    // Periodic save (every 2 seconds)
-    if (now - lastSaveTime > 2000) {
-        saveAllPMKIDs();
+    // Periodic stats decay (every 2 minutes)
+    if (now - lastStatsDecay > STATS_DECAY_INTERVAL) {
+        decayChannelStats();
+        lastStatsDecay = now;
+    }
+    
+    // Backup save flag (every 30 seconds) - catches any missed immediate saves
+    // Actual save deferred to stop() after WiFi promiscuous disabled
+    if (now - lastSaveTime > 30000) {
+        pendingSaveFlag = true;  // Will be processed in stop() after WiFi off
         lastSaveTime = now;
     }
     
@@ -409,6 +571,127 @@ void DoNoHamMode::hopToNextChannel() {
     channelIndex = (channelIndex + 1) % 13;
     currentChannel = CHANNEL_ORDER[channelIndex];
     esp_wifi_set_channel(currentChannel, WIFI_SECOND_CHAN_NONE);
+}
+
+// Check if channel is primary (1, 6, or 11)
+bool DoNoHamMode::isPrimaryChannel(uint8_t ch) {
+    return (ch == 1 || ch == 6 || ch == 11);
+}
+
+// Calculate adaptive hop delay based on channel activity
+uint16_t DoNoHamMode::getAdaptiveHopDelay() {
+    ChannelStats& stats = channelStats[channelIndex];
+    
+    // Base timing: primary channels get more time
+    uint16_t baseTime = isPrimaryChannel(stats.channel) ? HOP_BASE_PRIMARY : HOP_BASE_SECONDARY;
+    
+    // Adjust based on local activity
+    uint16_t hopDelay;
+    if (stats.beaconCount >= BUSY_THRESHOLD) {
+        hopDelay = (baseTime * 3) / 2;  // Busy channel (1.5x)
+    } else if (stats.beaconCount >= 2) {
+        hopDelay = baseTime;  // Normal activity
+    } else if (stats.deadStreak >= DEAD_STREAK_LIMIT) {
+        hopDelay = HOP_MIN;  // Dead channel, minimum time
+    } else {
+        hopDelay = (baseTime * 7) / 10;  // Light activity (0.7x)
+    }
+    
+    // Global activity adjustment
+    if (lastCycleActivity < 5) {
+        hopDelay = (hopDelay * 3) / 5;  // Quiet spectrum (0.6x)
+    } else if (lastCycleActivity > 40) {
+        hopDelay = (hopDelay * 6) / 5;  // Busy spectrum (1.2x)
+    }
+    
+    return hopDelay;
+}
+
+// Decay channel stats every 2 minutes
+void DoNoHamMode::decayChannelStats() {
+    for (int i = 0; i < 13; i++) {
+        channelStats[i].beaconCount = 0;
+        channelStats[i].eapolCount = 0;
+        channelStats[i].priority = 100;  // Reset to baseline
+        channelStats[i].deadStreak = 0;
+    }
+    lastCycleActivity = 0;
+}
+
+// Check if we should enter HUNTING state
+bool DoNoHamMode::checkHuntingTrigger() {
+    ChannelStats& stats = channelStats[channelIndex];
+    uint32_t now = millis();
+    
+    // Don't re-hunt same channel too quickly
+    if (lastHuntChannel == currentChannel && (now - lastHuntTime) < HUNT_COOLDOWN_MS) {
+        return false;
+    }
+    
+    // Trigger: 2+ EAPOL frames or high beacon burst
+    if (stats.eapolCount >= 2 || stats.beaconCount >= 8) {
+        state = DNHState::HUNTING;
+        huntStartTime = now;
+        lastHuntChannel = currentChannel;
+        lastHuntTime = now;
+        Serial.printf("[DNH] HUNTING on ch %d (B:%d E:%d)\n", 
+            currentChannel, stats.beaconCount, stats.eapolCount);
+        return true;
+    }
+    return false;
+}
+
+// Check if all channels are dead → IDLE_SWEEP
+void DoNoHamMode::checkIdleSweep() {
+    // If just completed full cycle
+    if (channelIndex == 0) {
+        uint16_t totalActivity = 0;
+        for (int i = 0; i < 13; i++) {
+            totalActivity += channelStats[i].beaconCount;
+        }
+        lastCycleActivity = totalActivity;
+        
+        // All channels dead → enter IDLE_SWEEP
+        if (totalActivity == 0) {
+            state = DNHState::IDLE_SWEEP;
+            Serial.println("[DNH] IDLE_SWEEP: spectrum silent");
+        }
+    }
+}
+
+// Track incomplete handshake for revisit
+void DoNoHamMode::trackIncompleteHandshake(const uint8_t* bssid, uint8_t mask, uint8_t ch) {
+    // Check if already tracked
+    for (auto& ihs : incompleteHandshakes) {
+        if (memcmp(ihs.bssid, bssid, 6) == 0) {
+            ihs.capturedMask = mask;
+            ihs.lastSeen = millis();
+            return;
+        }
+    }
+    
+    // Add new if room
+    if (incompleteHandshakes.size() < MAX_INCOMPLETE_HS) {
+        IncompleteHS ihs;
+        memcpy(ihs.bssid, bssid, 6);
+        ihs.capturedMask = mask;
+        ihs.channel = ch;
+        ihs.lastSeen = millis();
+        incompleteHandshakes.push_back(ihs);
+    }
+}
+
+// Remove stale incomplete handshakes
+void DoNoHamMode::pruneIncompleteHandshakes() {
+    uint32_t now = millis();
+    auto it = incompleteHandshakes.begin();
+    while (it != incompleteHandshakes.end()) {
+        if ((now - it->lastSeen) > INCOMPLETE_HS_TIMEOUT) {
+            it = incompleteHandshakes.erase(it);
+        } else {
+            ++it;
+        }
+    }
 }
 
 void DoNoHamMode::startDwell() {
@@ -434,6 +717,12 @@ void DoNoHamMode::saveAllPMKIDs() {
     // Save PMKIDs in hashcat 22000 format
     for (auto& p : pmkids) {
         if (p.saved) continue;
+        if (p.saveAttempts >= 3) continue;  // Give up after 3 failures
+        
+        // Exponential backoff: 0s, 2s, 5s
+        static const uint32_t backoffMs[] = {0, 2000, 5000};
+        uint32_t timeSinceCapture = millis() - p.timestamp;
+        if (timeSinceCapture < backoffMs[p.saveAttempts]) continue;
         
         // Try to backfill SSID if missing
         if (p.ssid[0] == 0) {
@@ -444,15 +733,41 @@ void DoNoHamMode::saveAllPMKIDs() {
             }
         }
         
-        // Can only save if we have SSID
+        // Try to backfill SSID from companion txt file (cross-mode compatibility)
+        if (p.ssid[0] == 0) {
+            char txtPath[64];
+            snprintf(txtPath, sizeof(txtPath), "/handshakes/%02X%02X%02X%02X%02X%02X_pmkid.txt",
+                     p.bssid[0], p.bssid[1], p.bssid[2], p.bssid[3], p.bssid[4], p.bssid[5]);
+            if (SD.exists(txtPath)) {
+                File txtFile = SD.open(txtPath, FILE_READ);
+                if (txtFile) {
+                    String ssid = txtFile.readStringUntil('\n');
+                    ssid.trim();
+                    if (ssid.length() > 0) {
+                        strncpy(p.ssid, ssid.c_str(), 32);
+                        p.ssid[32] = 0;
+                        Serial.printf("[DNH] PMKID SSID backfilled from txt: %s\\n", p.ssid);
+                    }
+                    txtFile.close();
+                }
+            }
+        }
+        
+        // Can only save if we have SSID (don't count as attempt - will retry when SSID arrives)
         if (p.ssid[0] == 0) continue;
         
-        // Check for all-zero PMKID (invalid)
+        // Check for all-zero PMKID (invalid - don't count as attempt)
         bool allZeros = true;
         for (int i = 0; i < 16; i++) {
             if (p.pmkid[i] != 0) { allZeros = false; break; }
         }
-        if (allZeros) continue;
+        if (allZeros) {
+            p.saved = true;  // Mark invalid PMKID as done
+            continue;
+        }
+        
+        // Now we actually attempt to save - increment counter
+        p.saveAttempts++;
         
         // Build filename: /handshakes/BSSID.22000
         char filename[64];
@@ -466,7 +781,10 @@ void DoNoHamMode::saveAllPMKIDs() {
         
         File f = SD.open(filename, FILE_WRITE);
         if (!f) {
-            Serial.printf("[DNH] Failed to create PMKID file: %s\n", filename);
+            Serial.printf("[DNH] Failed to create PMKID file: %s (attempt %d)\\n", filename, p.saveAttempts);
+            if (p.saveAttempts >= 3) {
+                p.saved = true;  // Give up
+            }
             continue;
         }
         
@@ -488,17 +806,32 @@ void DoNoHamMode::saveAllPMKIDs() {
         
         char essidHex[65];
         int ssidLen = strlen(p.ssid);
-        for (int i = 0; i < ssidLen && i < 32; i++) {
+        if (ssidLen > 32) ssidLen = 32;  // Cap to max SSID length
+        for (int i = 0; i < ssidLen; i++) {
             sprintf(essidHex + i*2, "%02x", (uint8_t)p.ssid[i]);
         }
         essidHex[ssidLen * 2] = 0;
         
         // WPA*01*PMKID*MAC_AP*MAC_CLIENT*ESSID***01
-        f.printf("WPA*01*%s*%s*%s*%s***01\n", pmkidHex, macAP, macClient, essidHex);
+        f.printf("WPA*01*%s*%s*%s*%s***01\\n", pmkidHex, macAP, macClient, essidHex);
         f.close();
         
+        // Save SSID to companion txt file (matches OINK pattern)
+        char txtFilename[64];
+        snprintf(txtFilename, sizeof(txtFilename), "/handshakes/%02X%02X%02X%02X%02X%02X_pmkid.txt",
+                 p.bssid[0], p.bssid[1], p.bssid[2], p.bssid[3], p.bssid[4], p.bssid[5]);
+        // Delete existing file first to ensure clean overwrite (FILE_WRITE appends on ESP32)
+        if (SD.exists(txtFilename)) {
+            SD.remove(txtFilename);
+        }
+        File txtFile = SD.open(txtFilename, FILE_WRITE);
+        if (txtFile) {
+            txtFile.println(p.ssid);
+            txtFile.close();
+        }
+        
         p.saved = true;
-        Serial.printf("[DNH] PMKID saved: %s\n", filename);
+        Serial.printf("[DNH] PMKID saved: %s\\n", filename);
         SDLog::log("DNH", "PMKID saved: %s (%s)", p.ssid, filename);
     }
 }
@@ -508,6 +841,12 @@ void DoNoHamMode::saveAllHandshakes() {
     for (auto& hs : handshakes) {
         if (hs.saved) continue;
         if (!hs.hasValidPair()) continue;  // Need M1+M2 or M2+M3
+        if (hs.saveAttempts >= 3) continue;  // Give up after 3 failures
+        
+        // Exponential backoff: 0s, 2s, 5s
+        static const uint32_t backoffMs[] = {0, 2000, 5000};
+        uint32_t timeSinceCapture = millis() - hs.lastSeen;
+        if (timeSinceCapture < backoffMs[hs.saveAttempts]) continue;
         
         // Try to backfill SSID if missing
         if (hs.ssid[0] == 0) {
@@ -518,7 +857,27 @@ void DoNoHamMode::saveAllHandshakes() {
             }
         }
         
-        // Can only save if we have SSID
+        // Try to backfill SSID from companion txt file (cross-mode compatibility)
+        if (hs.ssid[0] == 0) {
+            char txtPath[64];
+            snprintf(txtPath, sizeof(txtPath), "/handshakes/%02X%02X%02X%02X%02X%02X.txt",
+                     hs.bssid[0], hs.bssid[1], hs.bssid[2], hs.bssid[3], hs.bssid[4], hs.bssid[5]);
+            if (SD.exists(txtPath)) {
+                File txtFile = SD.open(txtPath, FILE_READ);
+                if (txtFile) {
+                    String ssid = txtFile.readStringUntil('\n');
+                    ssid.trim();
+                    if (ssid.length() > 0) {
+                        strncpy(hs.ssid, ssid.c_str(), 32);
+                        hs.ssid[32] = 0;
+                        Serial.printf("[DNH] Handshake SSID backfilled from txt: %s\\n", hs.ssid);
+                    }
+                    txtFile.close();
+                }
+            }
+        }
+        
+        // Can only save if we have SSID (don't count as attempt - will retry when SSID arrives)
         if (hs.ssid[0] == 0) continue;
         
         // Determine message pair
@@ -537,7 +896,11 @@ void DoNoHamMode::saveAllHandshakes() {
             eapolFrame = &hs.frames[1];  // M2
         }
         
-        if (nonceFrame->len < 51 || eapolFrame->len < 95) continue;
+        // Frame length validation (don't count as attempt if malformed)
+        if (nonceFrame->len < 51 || eapolFrame->len < 97) continue;
+        
+        // Now we actually attempt to save - increment counter
+        hs.saveAttempts++;
         
         // Build filename: /handshakes/BSSID_hs.22000
         char filename[64];
@@ -551,7 +914,10 @@ void DoNoHamMode::saveAllHandshakes() {
         
         File f = SD.open(filename, FILE_WRITE);
         if (!f) {
-            Serial.printf("[DNH] Failed to create handshake file: %s\n", filename);
+            Serial.printf("[DNH] Failed to create handshake file: %s (attempt %d)\\n", filename, hs.saveAttempts);
+            if (hs.saveAttempts >= 3) {
+                hs.saved = true;  // Give up
+            }
             continue;
         }
         
@@ -573,10 +939,11 @@ void DoNoHamMode::saveAllHandshakes() {
             hs.station[0], hs.station[1], hs.station[2],
             hs.station[3], hs.station[4], hs.station[5]);
         
-        // ESSID (hex-encoded)
+        // ESSID (hex-encoded, max 32 chars = 64 hex + null)
         char essidHex[65];
         int ssidLen = strlen(hs.ssid);
-        for (int i = 0; i < ssidLen && i < 32; i++) {
+        if (ssidLen > 32) ssidLen = 32;  // Cap to max SSID length
+        for (int i = 0; i < ssidLen; i++) {
             sprintf(essidHex + i*2, "%02x", (uint8_t)hs.ssid[i]);
         }
         essidHex[ssidLen * 2] = 0;
@@ -615,8 +982,80 @@ void DoNoHamMode::saveAllHandshakes() {
         free(eapolHex);
         f.close();
         
+        // Save SSID to companion txt file (matches OINK pattern)
+        char txtFilename[64];
+        snprintf(txtFilename, sizeof(txtFilename), "/handshakes/%02X%02X%02X%02X%02X%02X.txt",
+                 hs.bssid[0], hs.bssid[1], hs.bssid[2], hs.bssid[3], hs.bssid[4], hs.bssid[5]);
+        File txtFile = SD.open(txtFilename, FILE_WRITE);
+        if (txtFile) {
+            txtFile.println(hs.ssid);
+            txtFile.close();
+        }
+        
+        // Also save PCAP (for WPA-SEC upload and wireshark analysis)
+        char pcapFilename[64];
+        snprintf(pcapFilename, sizeof(pcapFilename), "/handshakes/%02X%02X%02X%02X%02X%02X.pcap",
+            hs.bssid[0], hs.bssid[1], hs.bssid[2], hs.bssid[3], hs.bssid[4], hs.bssid[5]);
+        
+        File pcapFile = SD.open(pcapFilename, FILE_WRITE);
+        if (pcapFile) {
+            // Write PCAP global header
+            DNH_PCAPHeader hdr = {
+                .magic = 0xA1B2C3D4,
+                .version_major = 2,
+                .version_minor = 4,
+                .thiszone = 0,
+                .sigfigs = 0,
+                .snaplen = 65535,
+                .linktype = 127  // IEEE802_11_RADIOTAP
+            };
+            pcapFile.write((uint8_t*)&hdr, sizeof(hdr));
+            
+            int packetCount = 0;
+            
+            // Write beacon if available
+            if (hs.hasBeacon()) {
+                uint32_t beaconTotalLen = sizeof(DNH_RADIOTAP_HEADER) + hs.beaconLen;
+                DNH_PCAPPacketHeader beaconPkt = {
+                    .ts_sec = hs.firstSeen / 1000,
+                    .ts_usec = (hs.firstSeen % 1000) * 1000,
+                    .incl_len = beaconTotalLen,
+                    .orig_len = beaconTotalLen
+                };
+                pcapFile.write((uint8_t*)&beaconPkt, sizeof(beaconPkt));
+                pcapFile.write(DNH_RADIOTAP_HEADER, sizeof(DNH_RADIOTAP_HEADER));
+                pcapFile.write(hs.beaconData, hs.beaconLen);
+                packetCount++;
+            }
+            
+            // Write EAPOL frames
+            for (int i = 0; i < 4; i++) {
+                if (!(hs.capturedMask & (1 << i))) continue;
+                const EAPOLFrame& frame = hs.frames[i];
+                if (frame.len == 0) continue;
+                
+                // Prefer fullFrame if available
+                if (frame.fullFrameLen > 0 && frame.fullFrameLen <= 300) {
+                    uint32_t totalLen = sizeof(DNH_RADIOTAP_HEADER) + frame.fullFrameLen;
+                    DNH_PCAPPacketHeader pkt = {
+                        .ts_sec = frame.timestamp / 1000,
+                        .ts_usec = (frame.timestamp % 1000) * 1000,
+                        .incl_len = totalLen,
+                        .orig_len = totalLen
+                    };
+                    pcapFile.write((uint8_t*)&pkt, sizeof(pkt));
+                    pcapFile.write(DNH_RADIOTAP_HEADER, sizeof(DNH_RADIOTAP_HEADER));
+                    pcapFile.write(frame.fullFrame, frame.fullFrameLen);
+                    packetCount++;
+                }
+            }
+            
+            pcapFile.close();
+            Serial.printf("[DNH] PCAP saved: %s (%d packets)\n", pcapFilename, packetCount);
+        }
+        
         hs.saved = true;
-        Serial.printf("[DNH] Handshake saved: %s\n", filename);
+        Serial.printf("[DNH] Handshake saved: %s\\n", filename);
         SDLog::log("DNH", "Handshake saved: %s (%s)", hs.ssid, filename);
     }
 }
@@ -726,6 +1165,31 @@ void DoNoHamMode::handleBeacon(const uint8_t* frame, uint16_t len, int8_t rssi) 
         pendingNetwork.beaconCount = 1;
         pendingNetworkAdd = true;
     }
+    
+    // Store beacon for any in-progress handshakes from this BSSID
+    // (needed for PCAP export / WPA-SEC upload)
+    for (auto& hs : handshakes) {
+        if (!hs.saved && hs.beaconData == nullptr && memcmp(hs.bssid, bssid, 6) == 0) {
+            // Allocate and copy beacon data
+            uint16_t copyLen = (len > 512) ? 512 : len;  // Cap at reasonable size
+            hs.beaconData = (uint8_t*)malloc(copyLen);
+            if (hs.beaconData) {
+                memcpy(hs.beaconData, frame, copyLen);
+                hs.beaconLen = copyLen;
+                Serial.printf("[DNH] Beacon stored for handshake: %02X:%02X:%02X:%02X:%02X:%02X\n",
+                    bssid[0], bssid[1], bssid[2], bssid[3], bssid[4], bssid[5]);
+            }
+            break;  // One beacon per handshake is enough
+        }
+    }
+    
+    // Track channel activity for adaptive hopping
+    int idx = currentChannel - 1;
+    if (idx >= 0 && idx < 13) {
+        channelStats[idx].beaconCount++;
+        channelStats[idx].lifetimeBeacons++;
+        channelStats[idx].lastActivity = millis();
+    }
 }
 
 void DoNoHamMode::handleEAPOL(const uint8_t* frame, uint16_t len, int8_t rssi) {
@@ -802,15 +1266,16 @@ void DoNoHamMode::handleEAPOL(const uint8_t* frame, uint16_t len, int8_t rssi) {
     
     // EAPOL-Key: descriptor_type(1) @ 4, key_info(2) @ 5-6
     uint16_t keyInfo = (eapol[5] << 8) | eapol[6];
-    bool keyAck = (keyInfo & 0x0080) != 0;
-    bool keyMic = (keyInfo & 0x0100) != 0;
-    bool secure = (keyInfo & 0x0200) != 0;
+    uint8_t install = (keyInfo >> 6) & 0x01;
+    uint8_t keyAck = (keyInfo >> 7) & 0x01;
+    uint8_t keyMic = (keyInfo >> 8) & 0x01;
+    uint8_t secure = (keyInfo >> 9) & 0x01;
     
-    // Identify message: M1 = KeyAck, no MIC, no Secure
+    // Identify message: M1 = KeyAck, no MIC; M2 = MIC, not secure; M3 = KeyAck+MIC+Install; M4 = MIC+Secure
     uint8_t messageNum = 0;
-    if (keyAck && !keyMic && !secure) messageNum = 1;
+    if (keyAck && !keyMic) messageNum = 1;
     else if (!keyAck && keyMic && !secure) messageNum = 2;
-    else if (keyAck && keyMic && secure) messageNum = 3;
+    else if (keyAck && keyMic && install) messageNum = 3;
     else if (!keyAck && keyMic && secure) messageNum = 4;
     
     if (messageNum == 0) return;  // Unknown message type
@@ -886,15 +1351,55 @@ void DoNoHamMode::handleEAPOL(const uint8_t* frame, uint16_t len, int8_t rssi) {
     
     // ========== HANDSHAKE FRAME CAPTURE (M1-M4) ==========
     // Queue frame for deferred processing (natural client reconnects)
-    if (!pendingHandshakeAdd && !pendingHandshakeBusy) {
-        memcpy(pendingHandshake.bssid, apBssid, 6);
-        memcpy(pendingHandshake.station, station, 6);
-        pendingHandshake.messageNum = messageNum;
-        pendingHandshake.frameLen = min((uint16_t)512, eapolLen);
-        memcpy(pendingHandshake.frameData, eapol, pendingHandshake.frameLen);
-        pendingHandshakeAdd = true;
+    // Batch accumulate if frames arrive in quick succession
+    if (!pendingHandshakeBusy) {
+        // Check if slot already has a frame for this handshake
+        bool sameHandshake = pendingHandshakeAdd &&
+                             memcmp(pendingHandshake.bssid, apBssid, 6) == 0 &&
+                             memcmp(pendingHandshake.station, station, 6) == 0;
         
-        Serial.printf("[DNH] EAPOL M%d queued from %02X:%02X:%02X:%02X:%02X:%02X\n",
-            messageNum, apBssid[0], apBssid[1], apBssid[2], apBssid[3], apBssid[4], apBssid[5]);
+        if (!pendingHandshakeAdd || sameHandshake) {
+            // Either slot is free, or it's for the same handshake (update it)
+            if (!pendingHandshakeAdd) {
+                // First frame for this handshake - init the slot
+                memcpy(pendingHandshake.bssid, apBssid, 6);
+                memcpy(pendingHandshake.station, station, 6);
+                pendingHandshake.messageNum = messageNum;  // DEPRECATED
+                pendingHandshake.capturedMask = 0;
+            }
+            
+            // Store this frame in the appropriate slot (M1-M4 → index 0-3)
+            uint8_t frameIdx = messageNum - 1;
+            if (frameIdx < 4) {
+                // EAPOL payload for hashcat 22000
+                uint16_t copyLen = min((uint16_t)512, eapolLen);
+                memcpy(pendingHandshake.frames[frameIdx].data, eapol, copyLen);
+                pendingHandshake.frames[frameIdx].len = copyLen;
+                
+                // Full 802.11 frame for PCAP export (radiotap + WPA-SEC compatibility)
+                uint16_t fullCopyLen = min((uint16_t)300, len);
+                memcpy(pendingHandshake.frames[frameIdx].fullFrame, frame, fullCopyLen);
+                pendingHandshake.frames[frameIdx].fullFrameLen = fullCopyLen;
+                pendingHandshake.frames[frameIdx].rssi = rssi;
+                
+                pendingHandshake.capturedMask |= (1 << frameIdx);
+            }
+            
+            pendingHandshakeAdd = true;
+            Serial.printf("[DNH] EAPOL M%d queued from %02X:%02X:%02X:%02X:%02X:%02X\n",
+                messageNum, apBssid[0], apBssid[1], apBssid[2], apBssid[3], apBssid[4], apBssid[5]);
+        }
+        // else: slot full with different handshake, drop this frame (rare race)
     }
+    
+    // Track channel activity for adaptive hopping
+    int idx = currentChannel - 1;
+    if (idx >= 0 && idx < 13) {
+        channelStats[idx].eapolCount++;
+        channelStats[idx].lastActivity = millis();
+    }
+    
+    // Track incomplete handshakes for future hunting
+    uint8_t captureMask = (1 << (messageNum - 1));
+    trackIncompleteHandshake(apBssid, captureMask, currentChannel);
 }

@@ -1,5 +1,5 @@
 // Auto-generated build info
 #pragma once
-#define BUILD_TIME "2025-12-21T02:21:35.924475"
-#define BUILD_VERSION "0.1.7_testing"
-#define BUILD_COMMIT "61b825a"
+#define BUILD_TIME "2025-12-23T18:24:04.506368"
+#define BUILD_VERSION "0.1.7_forgot_my_meds_hotfix02"
+#define BUILD_COMMIT "0825a4a"

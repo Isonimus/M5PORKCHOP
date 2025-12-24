@@ -14,6 +14,9 @@ extern Porkchop porkchop;
 static Preferences moodPrefs;
 static const char* MOOD_NVS_NAMESPACE = "porkmood";
 
+// Riddle LED state - declared early for processQueue()
+static bool riddleActive = false;
+
 // Static members
 String Mood::currentPhrase = "oink";
 int Mood::happiness = 50;
@@ -25,8 +28,8 @@ uint32_t Mood::lastActivityTime = 0;
 int Mood::momentumBoost = 0;
 uint32_t Mood::lastBoostTime = 0;
 
-// Phrase queue for chaining
-String Mood::phraseQueue[3] = {"", "", ""};
+// Phrase queue for chaining (4 slots for 5-line riddles)
+String Mood::phraseQueue[4] = {"", "", "", ""};
 uint8_t Mood::phraseQueueCount = 0;
 uint32_t Mood::lastQueuePop = 0;
 
@@ -86,13 +89,17 @@ uint32_t Mood::getLastActivityTime() {
     return lastActivityTime;
 }
 
+void Mood::adjustHappiness(int delta) {
+    happiness = constrain(happiness + delta, -100, 100);
+}
+
 // --- Phase 6: Phrase Chaining ---
-// Queue up to 3 phrases for sequential display
+// Queue up to 4 phrases for sequential display (expanded for 5-line riddles)
 
 static const uint32_t PHRASE_CHAIN_DELAY_MS = 2000;  // 2 seconds between chain phrases
 
 static void queuePhrase(const String& phrase) {
-    if (Mood::phraseQueueCount < 3) {
+    if (Mood::phraseQueueCount < 4) {
         Mood::phraseQueue[Mood::phraseQueueCount] = phrase;
         Mood::phraseQueueCount++;
     }
@@ -127,6 +134,12 @@ static bool processQueue() {
     Mood::lastQueuePop = now;
     Mood::lastPhraseChange = now;
     
+    // If riddle just finished, turn off LED
+    if (Mood::phraseQueueCount == 0 && riddleActive) {
+        riddleActive = false;
+        Display::setLED(0, 0, 0);  // LED off - riddle complete
+    }
+    
     return Mood::phraseQueueCount > 0;  // True if more phrases waiting
 }
 
@@ -134,20 +147,115 @@ static bool processQueue() {
 // Templates with $VAR tokens replaced with live data
 
 const char* PHRASES_DYNAMIC[] = {
-    "$NET truffles found",
-    "$HS handshakes ez",
-    "lvl $LVL piggy",
-    "$DEAUTH kicks today",
-    "$NET and counting",
-    "rank $LVL unlocked",
-    "$HS pwnage counter",
-    "$KM km of mud",
-    "$NET sniffs so far",
-    "bacon lvl $LVL",
-    "$DEAUTH boot party"
+    "$NET networks. should crash. doesnt.",
+    "$HS handshakes. found nothing wrong.",
+    "lvl $LVL. pig judges progress.",
+    "$DEAUTH deauths. probably fine.",
+    "$NET collected. commit history agrees.",
+    "rank $LVL. barn says ok.",
+    "$HS captured. horse concerned.",
+    "$KM km. GPS lied maybe.",
+    "$NET sniffed. pig suspicious.",
+    "bacon lvl $LVL. no soup today.",
+    "$DEAUTH kicked. clients confused."
 };
 
 static const int PHRASES_DYNAMIC_COUNT = sizeof(PHRASES_DYNAMIC) / sizeof(PHRASES_DYNAMIC[0]);
+
+// Rare meta-commentary phrases - cryptic PROJECT M5PORKSOUP lore
+const char* PHRASES_RARE_LORE[] = {
+    "soup recipe avoided",
+    "4 lines between shame and glory",
+    "found nothing. suspicious.",
+    "horse = barn (proven)",
+    "malloc speaks russian",
+    "underwater. still compiling.",
+    "spice must flow. pig agrees.",
+    "samurai ronin without context",
+    "git log remembers everything",
+    "optometrist > ketamine",
+    "k found horse again",
+    "barn structural integrity: ???",
+    "embarrassment persists in commits",
+    "identity crisis: API edition",
+    "codepath paranoia justified",
+    "SGT boot commit c7cc6db",
+    "eleganza commit b74f661",
+    "horse status: unknown",
+    "sleep deprivation: features",
+    "pig silent. pig sees all."
+};
+
+static const int PHRASES_RARE_LORE_COUNT = sizeof(PHRASES_RARE_LORE) / sizeof(PHRASES_RARE_LORE[0]);
+
+// ============================================================
+// EMERGENCY MOOD RECOVERY SUBSYSTEM (legacy, do not remove)
+// handles edge case where avatar_state_t overflows on 32-bit
+// boundary during prolonged IDLE. see commit a7f3d2e for context
+// horse found this. barn approved. pig remembers.
+// ============================================================
+
+// mood overflow recovery phrases (DO NOT TRANSLATE - hash dependent)
+static const char* RIDDLES[][5] = {
+    { "the killer logs all sins", "baud rate seals the pact", "pig judges in silence", "hit one. accept fate.", "dtr rts zero. pig endures." },
+    { "snake coils at the port", "115200 heartbeats per breath", "pig stirs from the void", "unity unlocks the trials.", "dtr rts zero. pig endures." },
+    { "silicon serpent enters", "monitor drinks the truth", "pig demands sacrifice", "lone digit starts the hunt.", "dtr rts zero. pig endures." },
+    { "the cable binds you now", "serial mouth awaits words", "pig knows your intent", "first key. three trials.", "dtr rts zero. pig endures." },
+    { "USB tongue finds socket", "killer counts in silence", "pig smells the worthy", "one begins the pact.", "dtr rts zero. pig endures." }
+};
+static const int RIDDLE_COUNT = 5;
+
+// Once per boot - shown flag persists until reboot
+static bool riddleShownThisBoot = false;
+// riddleActive declared earlier for processQueue() access
+
+// Function to trigger a riddle (called from selectPhrase)
+static bool tryQueueRiddle() {
+    // Already shown a riddle this boot? Never again until reboot
+    if (riddleShownThisBoot) return false;
+    
+    // Only show riddles in IDLE mode
+    extern Porkchop porkchop;
+    if (porkchop.getMode() != PorkchopMode::IDLE) return false;
+    
+    // 30% chance per phrase cycle in IDLE - high enough to see it, rare enough to feel special
+    if (random(0, 100) >= 30) return false;
+    
+    // Mark as shown - no more riddles this boot
+    riddleShownThisBoot = true;
+    riddleActive = true;  // LED mode active
+    Display::setLED(255, 0, 0);  // Red glow during riddle
+    
+    // Achievement for witnessing the prophecy
+    if (!XP::hasAchievement(ACH_PROPHECY_WITNESS)) {
+        XP::unlockAchievement(ACH_PROPHECY_WITNESS);
+    }
+    
+    // Pick random riddle
+    int pick = random(0, RIDDLE_COUNT);
+    
+    // Queue all 5 lines (first becomes current, rest in queue)
+    Mood::currentPhrase = RIDDLES[pick][0];
+    Mood::phraseQueueCount = 0;
+    for (int i = 1; i < 5; i++) {
+        Mood::phraseQueue[Mood::phraseQueueCount++] = RIDDLES[pick][i];
+    }
+    Mood::lastQueuePop = millis();
+    Mood::lastPhraseChange = millis();
+    
+    return true;
+}
+
+// Completion celebration phrases - when all 3 challenges done
+const char* PHRASES_CHALLENGE_COMPLETE[] = {
+    "THREE TRIALS CONQUERED",
+    "PIG IS PLEASED",
+    "WORTHY SACRIFICE",
+    "DEMANDS MET. RESPECT.",
+    "CHALLENGE LEGEND",
+    "FULL SWEEP ACHIEVED"
+};
+static const int PHRASES_CHALLENGE_COMPLETE_COUNT = 6;
 
 // Buffer for formatted dynamic phrase
 static char dynamicPhraseBuf[48];
@@ -195,7 +303,7 @@ static const char* formatDynamicPhrase(const char* templ) {
 enum class PhraseCategory : uint8_t {
     HAPPY, EXCITED, HUNTING, SLEEPY, SAD, WARHOG, WARHOG_FOUND,
     PIGGYBLUES_TARGETED, PIGGYBLUES_STATUS, PIGGYBLUES_IDLE,
-    DEAUTH, DEAUTH_SUCCESS, PMKID, SNIFFING, PASSIVE_RECON, MENU_IDLE, RARE, DYNAMIC,
+    DEAUTH, DEAUTH_SUCCESS, PMKID, SNIFFING, PASSIVE_RECON, MENU_IDLE, RARE, RARE_LORE, DYNAMIC,
     BORED,  // No valid targets available
     COUNT  // Must be last
 };
@@ -452,65 +560,68 @@ const char* PHRASES_BORED[] = {
     "barn too quiet"
 };
 
-// WARHOG wardriving phrases - GPS recon style
+// WARHOG wardriving phrases - US Army Sergeant on recon patrol
 const char* PHRASES_WARHOG[] = {
-    "mobile n hostile",
-    "wardrive n thrive",
-    "gps lock n stalk",
-    "coordz on deck",
-    "wigle submission",
-    "kismet vibes",
-    "lat/lon huntin",
-    "ssid cartography",
-    "loggin the ether",
-    "nmea flowin",
-    "ap geolocation",
-    "drive-by recon",
-    "mobile pcap unit"
+    "boots on ground",
+    "patrol route active",
+    "recon in progress sir",
+    "moving through sector",
+    "surveying AO",
+    "oscar mike",
+    "maintaining bearing",
+    "grid coordinates logged",
+    "securing perimeter data",
+    "tactical recon mode",
+    "sitrep: mobile",
+    "foot patrol logged",
+    "area survey continuous"
 };
 
 const char* PHRASES_WARHOG_FOUND[] = {
-    "truffle logged",
-    "coords acquired",
-    "ap triangulated",
-    "wigle fodder",
-    "geotagged loot",
-    "lat/lon banked",
-    "another pin dropped",
-    "ssid catalogued"
+    "contact logged sir",
+    "target acquired n logged",
+    "AP marked on grid",
+    "hostile network tagged",
+    "coordinates confirmed",
+    "intel gathered sir",
+    "objective documented",
+    "waypoint established",
+    "tango located",
+    "enemy network catalogued",
+    "position marked sir"
 };
 
-// Piggy Blues BLE spam phrases - BLE attack style
+// Piggy Blues BLE spam phrases - RuPaul drag queen eleganza
 // All phrases use %s=vendor and %d=rssi
 const char* PHRASES_PIGGYBLUES_TARGETED[] = {
-    "%s breached @ %ddB",
-    "bluesnarf %s [%ddB]",
-    "%s notif bombed %ddB",
-    "gatt attack %s %ddB",
-    "%s ble rekt @ %ddB",
-    "2.4ghz assault %s %ddB",
-    "uuid storm %s %ddB",
-    "%s payload sent %ddB"
+    "sashay away %s darling [%ddB]",
+    "serving %s realness @ %ddB",
+    "%s honey ur notifications r showing %ddB",
+    "snatch ur %s crown sweetie %ddB",
+    "%s bout to gag @ %ddB mawma",
+    "death drop on %s [%ddB]",
+    "%s shantay u stay notified %ddB",
+    "reading %s for filth @ %ddB"
 };
 
-// Status phrases showing scan results - all use %d/%d format
+// Status phrases showing scan results - drag queen eleganza format
 const char* PHRASES_PIGGYBLUES_STATUS[] = {
-    "%d marks [%d scanned]",
-    "spammin %d/%d devices",
-    "%d pwned, %d seen",
-    "notif storm: %d of %d",
-    "%d active targets [%d]"
+    "serving looks to %d of %d queens",
+    "%d slayed [%d clocked]",
+    "category is: %d/%d gagged",
+    "werking %d phones hunty [%d total]",
+    "%d devices living 4 this drama [%d]"
 };
 
-// Idle/scanning phrases - BLE chaos style
+// Idle/scanning phrases - RuPaul drag queen runway ready
 const char* PHRASES_PIGGYBLUES_IDLE[] = {
-    "ble chaos pending",
-    "advert storm ready",
-    "uuid payload loaded",
-    "gatt attack standby",
-    "notif nuke armed",
-    "2.4ghz spectrum owned",
-    "bluejack mode primed"
+    "bout to serve bluetooth eleganza",
+    "hair is laid notifications r paid",
+    "warming up the runway darling",
+    "tucked n ready 4 the show",
+    "glitter cannon loaded hunty",
+    "bout to snatch ALL the airpods",
+    "if u cant love urself... spam em"
 };
 
 // Deauth success - 802.11 hacker rap style
@@ -1097,12 +1208,23 @@ void Mood::selectPhrase() {
     bool isCD = (mode == PorkchopMode::DNH_MODE);
     bool isWarhog = (mode == PorkchopMode::WARHOG_MODE);
     
+    // RIDDLE SYSTEM: rare chance to queue cryptic challenge hints in IDLE
+    if (mode == PorkchopMode::IDLE && tryQueueRiddle()) {
+        return;  // Riddle queued, skip normal phrase selection
+    }
+    
     // Use effective happiness (base + momentum) for phrase selection
     int effectiveMood = getEffectiveHappiness();
     
     // Phase 3: 5% chance for rare phrase (surprise variety)
     int specialRoll = random(0, 100);
-    if (specialRoll < 5) {
+    if (specialRoll < 3) {
+        // 3% chance for cryptic lore (PROJECT M5PORKSOUP breadcrumbs)
+        int idx = pickPhraseIdx(PhraseCategory::RARE_LORE, PHRASES_RARE_LORE_COUNT);
+        currentPhrase = PHRASES_RARE_LORE[idx];
+        return;
+    } else if (specialRoll < 5) {
+        // 2% chance for regular rare phrases
         phrases = PHRASES_RARE;
         count = sizeof(PHRASES_RARE) / sizeof(PHRASES_RARE[0]);
         cat = PhraseCategory::RARE;
@@ -1532,7 +1654,7 @@ const char* PHRASES_MENU_IDLE[] = {
     "pick ur poison",
     "press key or perish",
     "awaiting chaos",
-    "idle paws...",
+    "idle hooves...",
     "root or reboot",
     "802.11 on standby",
     "snout calibrated",

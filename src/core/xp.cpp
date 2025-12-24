@@ -3,6 +3,7 @@
 #include "xp.h"
 #include "sdlog.h"
 #include "config.h"
+#include "challenges.h"
 #include "../ui/display.h"
 #include "../ui/swine_stats.h"
 #include <M5Unified.h>
@@ -10,6 +11,13 @@
 #include <esp_mac.h>
 
 // SD backup file path - immortal pig survives M5Burner
+//
+// "Backup persistence: the pig's soul transcends the flash.
+//  From 1993, five letters gave gods their power.
+//  UAC corridors echoed with demons' screams.
+//  Every veteran typed it. Every veteran lived forever.
+//  The slayer's first gift before the slaying began."
+//
 static const char* XP_BACKUP_FILE = "/xp_backup.bin";
 
 // Static member initialization
@@ -19,7 +27,11 @@ Preferences XP::prefs;
 bool XP::initialized = false;
 void (*XP::levelUpCallback)(uint8_t, uint8_t) = nullptr;
 
-// XP values for each event type (synced with docs/RPG_IMPLEMENTATION_PLAN.txt)
+// Deferred save flag - set by achievements/unlockables, processed by processPendingSave()
+// Avoids SD writes during active WiFi promiscuous mode (bus contention)
+static volatile bool pendingSaveFlag = false;
+
+// XP values for each event type (v0.1.8 rebalanced - nerf spam, buff skill)
 static const uint16_t XP_VALUES[] = {
     1,      // NETWORK_FOUND
     3,      // NETWORK_HIDDEN
@@ -30,13 +42,13 @@ static const uint16_t XP_VALUES[] = {
     75,     // PMKID_CAPTURED
     2,      // DEAUTH_SENT
     15,     // DEAUTH_SUCCESS
-    2,      // WARHOG_LOGGED
-    25,     // DISTANCE_KM
-    2,      // BLE_BURST
-    3,      // BLE_APPLE
-    2,      // BLE_ANDROID
-    2,      // BLE_SAMSUNG
-    2,      // BLE_WINDOWS
+    1,      // WARHOG_LOGGED (nerfed: passive driving)
+    30,     // DISTANCE_KM (buffed: physical effort)
+    1,      // BLE_BURST (nerfed: spam)
+    2,      // BLE_APPLE (nerfed: spam)
+    1,      // BLE_ANDROID (nerfed: spam)
+    1,      // BLE_SAMSUNG (nerfed: spam)
+    1,      // BLE_WINDOWS (nerfed: spam)
     5,      // GPS_LOCK
     25,     // ML_ROGUE_DETECTED
     10,     // SESSION_30MIN
@@ -45,7 +57,7 @@ static const uint16_t XP_VALUES[] = {
     20,     // LOW_BATTERY_CAPTURE
     // DO NO HAM / BOAR BROS events (v0.1.4+)
     2,      // DNH_NETWORK_PASSIVE - same as regular network
-    100,    // DNH_PMKID_GHOST - rare passive PMKID!
+    150,    // DNH_PMKID_GHOST (buffed: very rare passive!)
     5,      // BOAR_BRO_ADDED
     15      // BOAR_BRO_MERCY - mid-attack exclusion
 };
@@ -422,6 +434,7 @@ void XP::load() {
     data.boarBrosAdded = prefs.getUInt("brosadd", 0);
     data.mercyCount = prefs.getUInt("mercy", 0);
     data.titleOverride = static_cast<TitleOverride>(prefs.getUChar("titleo", 0));
+    data.unlockables = prefs.getUInt("unlock", 0);  // Unlockables v0.1.8
     data.cachedLevel = calculateLevel(data.totalXP);
     
     prefs.end();
@@ -456,6 +469,7 @@ void XP::save() {
     prefs.putUInt("brosadd", data.boarBrosAdded);
     prefs.putUInt("mercy", data.mercyCount);
     prefs.putUChar("titleo", static_cast<uint8_t>(data.titleOverride));
+    prefs.putUInt("unlock", data.unlockables);  // Unlockables v0.1.8
     
     prefs.end();
     
@@ -465,6 +479,16 @@ void XP::save() {
     backupToSD();
 }
 
+void XP::processPendingSave() {
+    // Process deferred saves from achievements/unlockables
+    // Call from safe context (mode exit, IDLE, etc.) to avoid SD bus contention
+    if (pendingSaveFlag) {
+        pendingSaveFlag = false;
+        save();
+        Serial.println("[XP] Deferred save completed");
+    }
+}
+
 // Static for km tracking - needs to be reset on session start
 static uint32_t lastKmAwarded = 0;
 
@@ -472,11 +496,42 @@ static uint32_t lastKmAwarded = 0;
 static uint16_t lastXPGainAmount = 0;
 static uint32_t lastXPGainMs = 0;
 
+// ============ ANTI-FARM SESSION CAPS ============
+// pig rewards effort, not exploitation
+static uint16_t sessionBleXP = 0;
+static uint16_t sessionWarhogXP = 0;
+static bool bleCapWarned = false;
+static bool warhogCapWarned = false;
+static const uint16_t BLE_XP_CAP = 500;      // ~250 bursts worth
+static const uint16_t WARHOG_XP_CAP = 300;   // ~150 geotagged networks
+
+// ============ DOPAMINE HOOKS ============
+// the pig giveth, sometimes generously
+static uint8_t captureStreak = 0;            // consecutive captures without 5min gap
+static uint32_t lastCaptureTime = 0;         // for streak timeout
+static const uint32_t STREAK_TIMEOUT_MS = 300000;  // 5 minutes to maintain streak
+static bool ultraStreakAnnounced = false;    // one-time toast for streak 20
+
 void XP::startSession() {
     memset(&session, 0, sizeof(session));
     session.startTime = millis();
     lastKmAwarded = 0;  // Reset km counter for new session
+    
+    // Reset anti-farm caps for new session
+    sessionBleXP = 0;
+    sessionWarhogXP = 0;
+    bleCapWarned = false;
+    warhogCapWarned = false;
+    
+    // Reset dopamine hooks
+    captureStreak = 0;
+    lastCaptureTime = 0;
+    ultraStreakAnnounced = false;
+    
     data.sessions++;
+    
+    // pig wakes. pig demands action.
+    Challenges::generate();
 }
 
 void XP::endSession() {
@@ -521,6 +576,18 @@ void XP::addXP(XPEvent event) {
         case XPEvent::HANDSHAKE_CAPTURED:
             data.lifetimeHS++;
             session.handshakes++;
+            // Capture streak: maintain if <5min since last, reset otherwise
+            if (lastCaptureTime > 0 && (millis() - lastCaptureTime) > STREAK_TIMEOUT_MS) {
+                captureStreak = 0;  // Streak broken
+            }
+            captureStreak = (captureStreak < 255) ? captureStreak + 1 : 255;
+            lastCaptureTime = millis();
+            // ULTRA STREAK! celebration at 20 captures
+            if (captureStreak == 20 && !ultraStreakAnnounced) {
+                Display::showToast("ULTRA STREAK!");
+                Display::flashSiren(5);  // Extra sirens for ultra!
+                ultraStreakAnnounced = true;
+            }
             // Check for clutch capture (handshake at <10% battery)
             if (M5.Power.getBatteryLevel() < 10 && !hasAchievement(ACH_CLUTCH_CAPTURE)) {
                 unlockAchievement(ACH_CLUTCH_CAPTURE);
@@ -530,6 +597,18 @@ void XP::addXP(XPEvent event) {
             data.lifetimeHS++;
             data.lifetimePMKID++;
             session.handshakes++;
+            // Capture streak: maintain if <5min since last, reset otherwise
+            if (lastCaptureTime > 0 && (millis() - lastCaptureTime) > STREAK_TIMEOUT_MS) {
+                captureStreak = 0;  // Streak broken
+            }
+            captureStreak = (captureStreak < 255) ? captureStreak + 1 : 255;
+            lastCaptureTime = millis();
+            // ULTRA STREAK! celebration at 20 captures
+            if (captureStreak == 20 && !ultraStreakAnnounced) {
+                Display::showToast("ULTRA STREAK!");
+                Display::flashSiren(5);  // Extra sirens for ultra!
+                ultraStreakAnnounced = true;
+            }
             // Check for clutch capture (PMKID at <10% battery)
             if (M5.Power.getBatteryLevel() < 10 && !hasAchievement(ACH_CLUTCH_CAPTURE)) {
                 unlockAchievement(ACH_CLUTCH_CAPTURE);
@@ -544,29 +623,69 @@ void XP::addXP(XPEvent event) {
             break;
         case XPEvent::WARHOG_LOGGED:
             data.gpsNetworks++;
+            // Anti-farm: cap WARHOG XP per session
+            if (sessionWarhogXP >= WARHOG_XP_CAP) {
+                if (!warhogCapWarned) {
+                    Display::showToast("SNIFFED ENOUGH. REST.");
+                    warhogCapWarned = true;
+                }
+                amount = 0;  // Still track stats, no XP
+            } else {
+                sessionWarhogXP += amount;
+            }
             break;
         case XPEvent::BLE_BURST:
             data.lifetimeBLE++;
             session.blePackets++;
+            // Anti-farm: cap BLE XP per session
+            if (sessionBleXP >= BLE_XP_CAP) {
+                if (!bleCapWarned) {
+                    Display::showToast("SPAM TIRED. FIND PREY.");
+                    bleCapWarned = true;
+                }
+                amount = 0;
+            } else {
+                sessionBleXP += amount;
+            }
             break;
         case XPEvent::BLE_APPLE:
             data.lifetimeBLE++;
             session.blePackets++;
+            if (sessionBleXP >= BLE_XP_CAP) {
+                amount = 0;
+            } else {
+                sessionBleXP += amount;
+            }
             break;
         case XPEvent::BLE_ANDROID:
             data.lifetimeBLE++;
             data.androidBLE++;
             session.blePackets++;
+            if (sessionBleXP >= BLE_XP_CAP) {
+                amount = 0;
+            } else {
+                sessionBleXP += amount;
+            }
             break;
         case XPEvent::BLE_SAMSUNG:
             data.lifetimeBLE++;
             data.samsungBLE++;
             session.blePackets++;
+            if (sessionBleXP >= BLE_XP_CAP) {
+                amount = 0;
+            } else {
+                sessionBleXP += amount;
+            }
             break;
         case XPEvent::BLE_WINDOWS:
             data.lifetimeBLE++;
             data.windowsBLE++;
             session.blePackets++;
+            if (sessionBleXP >= BLE_XP_CAP) {
+                amount = 0;
+            } else {
+                sessionBleXP += amount;
+            }
             break;
         case XPEvent::GPS_LOCK:
             session.gpsLockAwarded = true;
@@ -622,6 +741,9 @@ void XP::addXP(XPEvent event) {
             break;
     }
     
+    // pig tracks your labor (challenges progress)
+    Challenges::onXPEvent(event);
+    
     // Apply capture XP multiplier for handshakes/PMKIDs (class buff: CR4CK_NOSE)
     if (event == XPEvent::HANDSHAKE_CAPTURED || event == XPEvent::PMKID_CAPTURED) {
         float captureMult = SwineStats::getCaptureXPMultiplier();
@@ -641,6 +763,35 @@ void XP::addXP(XPEvent event) {
 }
 
 void XP::addXP(uint16_t amount) {
+    // ============ DOPAMINE HOOK: XP CRITS ============
+    // 90% normal, 8% = 2x bonus, 2% = 5x JACKPOT
+    // Only applies to base amounts > 5 (skip small spam events)
+    if (amount > 5) {
+        uint8_t roll = random(0, 100);
+        if (roll >= 98) {
+            // JACKPOT! 2% chance for 5x
+            amount *= 5;
+            Display::showToast("JACKPOT!");
+            Display::flashSiren(3);  // Police lights!
+        } else if (roll >= 90) {
+            // Bonus! 8% chance for 2x
+            amount *= 2;
+        }
+    }
+    
+    // ============ DOPAMINE HOOK: STREAK BONUS ============
+    // Apply multiplier if we have an active capture streak
+    // 3 = +10%, 5 = +25%, 10 = +50%, 20 = +100%
+    if (captureStreak >= 20) {
+        amount = (uint16_t)((amount * 200) / 100);  // +100%
+    } else if (captureStreak >= 10) {
+        amount = (uint16_t)((amount * 150) / 100);  // +50%
+    } else if (captureStreak >= 5) {
+        amount = (uint16_t)((amount * 125) / 100);  // +25%
+    } else if (captureStreak >= 3) {
+        amount = (uint16_t)((amount * 110) / 100);  // +10%
+    }
+    
     // Apply buff/debuff XP multiplier (SNOUT$HARP +25%, F0GSNOUT -15%)
     float mult = SwineStats::getXPMultiplier();
     uint16_t modifiedAmount = (uint16_t)(amount * mult);
@@ -937,8 +1088,28 @@ void XP::unlockAchievement(PorkAchievement ach) {
     Serial.printf("[XP] Achievement unlocked: %s\n", ACHIEVEMENT_NAMES[idx]);
     SDLog::log("XP", "Achievement: %s", ACHIEVEMENT_NAMES[idx]);
     
-    // Save immediately to persist the achievement
-    save();
+    // pig earned a badge. pig deserves fanfare.
+    // but only if system is fully booted (Display ready)
+    if (initialized) {
+        char toastMsg[48];
+        snprintf(toastMsg, sizeof(toastMsg), "* %s *", ACHIEVEMENT_NAMES[idx]);
+        Display::showToast(toastMsg);
+        
+        // distinct jingle - different from level-up and class promotion
+        if (Config::personality().soundEnabled) {
+            M5.Speaker.tone(600, 80);
+            delay(100);
+            M5.Speaker.tone(900, 80);
+            delay(100);
+            M5.Speaker.tone(1200, 120);
+        }
+        
+        delay(500);  // let user read the toast
+    }
+    
+    // Defer save to avoid SD writes during active WiFi mode
+    // Will be processed by processPendingSave() in main loop or mode exit
+    pendingSaveFlag = true;
 }
 
 bool XP::hasAchievement(PorkAchievement ach) {
@@ -957,6 +1128,22 @@ uint8_t XP::getUnlockedCount() {
         ach >>= 1;
     }
     return count;
+}
+
+// Unlockables (v0.1.8) - secret challenges
+void XP::setUnlockable(uint8_t bitIndex) {
+    if (bitIndex >= 32) return;  // Only 32 bits available
+    data.unlockables |= (1UL << bitIndex);
+    pendingSaveFlag = true;  // Defer save to avoid bus contention
+}
+
+bool XP::hasUnlockable(uint8_t bitIndex) {
+    if (bitIndex >= 32) return false;
+    return (data.unlockables & (1UL << bitIndex)) != 0;
+}
+
+uint32_t XP::getUnlockables() {
+    return data.unlockables;
 }
 
 const char* XP::getAchievementName(PorkAchievement ach) {
@@ -1144,8 +1331,8 @@ void XP::checkAchievements() {
         unlockAchievement(ACH_GPS_ADDICT);
     }
     
-    // 50km in session (ultramarathon)
-    if (session.distanceM >= 50000 && !hasAchievement(ACH_ULTRAMARATHON)) {
+    // 42.195km in session (actual marathon distance)
+    if (session.distanceM >= 42195 && !hasAchievement(ACH_ULTRAMARATHON)) {
         unlockAchievement(ACH_ULTRAMARATHON);
     }
     
@@ -1270,20 +1457,23 @@ void XP::checkAchievements() {
     
     // ===== COMBINED ACHIEVEMENTS (v0.1.4+) =====
     
-    // Inner Peace: 1hr passive + 10 bros + 0 deauths this session
-    // Check session-based conditions (must add 10 bros THIS session)
-    if (!hasAchievement(ACH_INNER_PEACE) && !session.everDeauthed) {
-        uint32_t sessionMinutes = (millis() - session.startTime) / 60000;
-        if (sessionMinutes >= 60 && session.boarBrosThisSession >= 10) {
-            unlockAchievement(ACH_INNER_PEACE);
-        }
-    }
-    
     // Pacifist Run: 50+ networks discovered, all added to bros
     // This is session-based: networks == boarBrosThisSession this session
     if (!hasAchievement(ACH_PACIFIST_RUN)) {
         if (session.networks >= 50 && session.networks <= session.boarBrosThisSession) {
             unlockAchievement(ACH_PACIFIST_RUN);
+        }
+    }
+    
+    // ===== ULTIMATE ACHIEVEMENT (v0.1.8) =====
+    
+    // TH3_C0MPL3T10N1ST: All other achievements unlocked
+    // Check if all bits 0-62 are set (excluding bit 63 itself)
+    if (!hasAchievement(ACH_FULL_CLEAR)) {
+        // Mask for all achievements except FULL_CLEAR itself
+        const uint64_t ALL_OTHER_ACHIEVEMENTS = (1ULL << 63) - 1;  // bits 0-62
+        if ((data.achievements & ALL_OTHER_ACHIEVEMENTS) == ALL_OTHER_ACHIEVEMENTS) {
+            unlockAchievement(ACH_FULL_CLEAR);
         }
     }
 }

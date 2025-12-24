@@ -11,6 +11,7 @@
 #include "../ui/swine_stats.h"
 #include "../ui/boar_bros_menu.h"
 #include "../ui/wigle_menu.h"
+#include "../ui/unlockables_menu.h"
 #include "../piglet/mood.h"
 #include "../piglet/avatar.h"
 #include "../modes/oink.h"
@@ -22,6 +23,7 @@
 #include "config.h"
 #include "xp.h"
 #include "sdlog.h"
+#include "challenges.h"
 
 Porkchop::Porkchop() 
     : currentMode(PorkchopMode::IDLE)
@@ -75,22 +77,23 @@ void Porkchop::init() {
     // Order: Modes -> Data/Stats -> Services
     std::vector<MenuItem> mainMenuItems = {
         // === MODES ===
-        {"OINK", 1, "HUNT FOR HANDSHAKES"},
-        {"C. DONOHAM", 14, "PASSIVE RECON (NO ATTACKS)"},
-        {"SGT WARHOG", 2, "WARDRIVE WITH GPS"},
-        {"PIGGY BLUES", 8, "BLE NOTIFICATION SPAM"},
-        {"HOG ON SPECTRUM", 10, "WIFI SPECTRUM ANALYZER"},
+        {"OINK", 1, "DEAUTH N CAPTURE INNIT"},
+        {"DONOHAM", 14, "JAH BLESS DI RX"},
+        {"WARHOG", 2, "OSCAR MIKE WITH GPS"},
+        {"PIGGY BLUES", 8, "SLAY ON BLEAY"},
+        {"HOG ON SPECTRUM", 10, "NIETZSCHE KNOWS"},
         // === DATA & STATS ===
-        {"SWINE STATS", 11, "LIFETIME STATS & BUFFS"},
-        {"LOOT", 4, "VIEW SAVED LOOT"},
-        {"PORK TRACKS", 13, "UPLOAD TO WIGLE"},
-        {"BOAR BROS", 12, "MANAGE FRIENDLY NETWORKS"},
-        {"ACHIEVEMENTS", 9, "PROOF OF PWN"},
+        {"SWINE STATS", 11, "PIGRESSION"},
+        {"LOOT", 4, "HASHCAT FOOD"},
+        {"PORK TRACKS", 13, "RECON OP DEBRIEF"},
+        {"BOAR BROS", 12, "RESPECT THE FAMILY"},
+        {"ACHIEVEMENTS", 9, "YOU DO IT ON STEAM"},
+        {"UNLOCKABLES", 15, "OPEN ME"},
         // === SERVICES ===
-        {"FILE TRANSFER", 3, "WIFI FILE SERVER"},
-        {"LOG VIEWER", 7, "DEBUG LOG TAIL"},
-        {"SETTINGS", 5, "TWEAK THE PIG"},
-        {"ABOUT", 6, "CREDITS AND INFO"}
+        {"FILE TRANSFER", 3, "CABLES HELL NAH"},
+        {"LOG VIEWER", 7, "KEEP IT CLEAN KIDDO"},
+        {"SETTINGS", 5, "now in lowercase"},
+        {"ABOUT", 6, "SHOW YOUR THERAPIST"}
     };
     Menu::setItems(mainMenuItems);
     Menu::setTitle("PORKCHOP OS");
@@ -112,6 +115,7 @@ void Porkchop::init() {
             case 12: setMode(PorkchopMode::BOAR_BROS); break;
             case 13: setMode(PorkchopMode::WIGLE_MENU); break;
             case 14: setMode(PorkchopMode::DNH_MODE); break;
+            case 15: setMode(PorkchopMode::UNLOCKABLES); break;
         }
         Menu::clearSelected();
     });
@@ -142,7 +146,7 @@ void Porkchop::setMode(PorkchopMode mode) {
         (oldMode == PorkchopMode::OINK_MODE && mode == PorkchopMode::DNH_MODE) ||
         (oldMode == PorkchopMode::DNH_MODE && mode == PorkchopMode::OINK_MODE);
     
-    // Only save "real" modes as previous (not SETTINGS/ABOUT/MENU/CAPTURES/ACHIEVEMENTS/FILE_TRANSFER/LOG_VIEWER/SWINE_STATS/BOAR_BROS/WIGLE_MENU)
+    // Only save "real" modes as previous (not SETTINGS/ABOUT/MENU/CAPTURES/ACHIEVEMENTS/FILE_TRANSFER/LOG_VIEWER/SWINE_STATS/BOAR_BROS/WIGLE_MENU/UNLOCKABLES)
     if (currentMode != PorkchopMode::SETTINGS && 
         currentMode != PorkchopMode::ABOUT && 
         currentMode != PorkchopMode::CAPTURES &&
@@ -152,7 +156,8 @@ void Porkchop::setMode(PorkchopMode mode) {
         currentMode != PorkchopMode::LOG_VIEWER &&
         currentMode != PorkchopMode::SWINE_STATS &&
         currentMode != PorkchopMode::BOAR_BROS &&
-        currentMode != PorkchopMode::WIGLE_MENU) {
+        currentMode != PorkchopMode::WIGLE_MENU &&
+        currentMode != PorkchopMode::UNLOCKABLES) {
         previousMode = currentMode;
     }
     currentMode = mode;
@@ -208,6 +213,9 @@ void Porkchop::setMode(PorkchopMode mode) {
             break;
         case PorkchopMode::WIGLE_MENU:
             WigleMenu::hide();
+            break;
+        case PorkchopMode::UNLOCKABLES:
+            UnlockablesMenu::hide();
             break;
         default:
             break;
@@ -287,6 +295,9 @@ void Porkchop::setMode(PorkchopMode mode) {
             break;
         case PorkchopMode::WIGLE_MENU:
             WigleMenu::show();
+            break;
+        case PorkchopMode::UNLOCKABLES:
+            UnlockablesMenu::show();
             break;
         case PorkchopMode::ABOUT:
             Display::resetAboutState();
@@ -440,6 +451,13 @@ void Porkchop::handleInput() {
                 case 'd': // DO NO HAM mode
                 case 'D':
                     setMode(PorkchopMode::DNH_MODE);
+                    break;
+                case 'f': // File transfer (PORKCHOP COMMANDER)
+                case 'F':
+                    setMode(PorkchopMode::FILE_TRANSFER);
+                    break;
+                case '1': // Reveal session challenges to Serial
+                    Challenges::printToSerial();
                     break;
             }
         }
@@ -604,6 +622,12 @@ void Porkchop::updateMode() {
         case PorkchopMode::WIGLE_MENU:
             WigleMenu::update();
             if (!WigleMenu::isActive()) {
+                setMode(PorkchopMode::MENU);
+            }
+            break;
+        case PorkchopMode::UNLOCKABLES:
+            UnlockablesMenu::update();
+            if (!UnlockablesMenu::isActive()) {
                 setMode(PorkchopMode::MENU);
             }
             break;

@@ -23,6 +23,7 @@
 #include "swine_stats.h"
 #include "boar_bros_menu.h"
 #include "wigle_menu.h"
+#include "unlockables_menu.h"
 
 // Theme color getters - read from config
 // Theme definitions (single copy, declared extern in display.h)
@@ -179,6 +180,10 @@ void Display::update() {
         case PorkchopMode::WIGLE_MENU:
             WigleMenu::draw(mainCanvas);
             break;
+            
+        case PorkchopMode::UNLOCKABLES:
+            UnlockablesMenu::draw(mainCanvas);
+            break;
     }
     
     drawBottomBar();
@@ -284,6 +289,10 @@ void Display::drawTopBar() {
                 snprintf(buf, sizeof(buf), "PORK TR4CKS (%d)", WigleMenu::getCount());
                 modeStr = buf;
             }
+            modeColor = COLOR_ACCENT;
+            break;
+        case PorkchopMode::UNLOCKABLES:
+            modeStr = "UNL0CK4BL3S";
             modeColor = COLOR_ACCENT;
             break;
     }
@@ -415,14 +424,8 @@ void Display::drawBottomBar() {
             bool hidden = OinkMode::isTargetHidden();
             
             if (hidden || targetSSID[0] == '\0') {
-                // Hidden network - show last 4 bytes of BSSID
-                const uint8_t* bssid = OinkMode::getTargetBSSID();
-                if (bssid) {
-                    snprintf(buf, sizeof(buf), "LOCK:??%02X%02X C:%02d CH:%02d", 
-                             bssid[4], bssid[5], clients, channel);
-                } else {
-                    snprintf(buf, sizeof(buf), "LOCK:??? C:%02d CH:%02d", clients, channel);
-                }
+                // Hidden network - show [GHOST] label (clearer than ???)
+                snprintf(buf, sizeof(buf), "LOCK:[GHOST] C:%02d CH:%02d", clients, channel);
             } else {
                 // Normal network - 18 chars now, proper sick innit
                 char ssidShort[19];
@@ -643,6 +646,43 @@ void Display::showToast(const String& message) {
     pushAll();
 }
 
+// M5Cardputer NeoPixel LED on GPIO 21
+#define LED_PIN 21
+#define SIREN_COOLDOWN_MS 2000
+
+void Display::flashSiren(uint8_t cycles) {
+    // Guard: prevent rapid consecutive sirens (2 second cooldown)
+    static uint32_t lastSirenTime = 0;
+    uint32_t now = millis();
+    if (now - lastSirenTime < SIREN_COOLDOWN_MS) {
+        return;  // Too soon, skip this siren
+    }
+    lastSirenTime = now;
+    
+    // Police siren effect - red/blue alternating flash
+    // Uses ESP32-S3 built-in neopixelWrite() - no library needed!
+    // Note: LED brightness depends on display brightness (shared power rail)
+    // Users at 100% brightness get full siren effect
+
+    for (uint8_t i = 0; i < cycles; i++) {
+        // RED flash
+        neopixelWrite(LED_PIN, 255, 0, 0);
+        delay(40);
+
+        // BLUE flash
+        neopixelWrite(LED_PIN, 0, 0, 255);
+        delay(40);
+    }
+
+    // Turn off LED
+    neopixelWrite(LED_PIN, 0, 0, 0);
+}
+
+void Display::setLED(uint8_t r, uint8_t g, uint8_t b) {
+    // Static LED glow - for ambient effects like riddle mode
+    neopixelWrite(LED_PIN, r, g, b);
+}
+
 void Display::showLevelUp(uint8_t oldLevel, uint8_t newLevel) {
     // Level up popup - pink filled box with black text, auto-dismiss after 2.5s
     // Level up phrases
@@ -715,6 +755,7 @@ void Display::showLevelUp(uint8_t oldLevel, uint8_t newLevel) {
             break;  // Any key dismisses
         }
         delay(50);
+        yield();  // Feed watchdog during long celebration
     }
 }
 
@@ -784,6 +825,7 @@ void Display::showClassPromotion(const char* oldClass, const char* newClass) {
             break;
         }
         delay(50);
+        yield();  // Feed watchdog during long celebration
     }
 }
 
@@ -987,15 +1029,17 @@ void Display::drawFileTransferScreen(M5Canvas& canvas) {
         canvas.setTextColor(COLOR_FG);
         canvas.drawString(FileServer::getStatus(), DISPLAY_W / 2, 60);
     } else if (FileServer::isRunning() && FileServer::isConnected()) {
-        // Show IP address
+        // Show IP address - PIG SCREAMS UPPERCASE
         canvas.drawString("CONNECTED! BROWSE TO:", DISPLAY_W / 2, 30);
         
         canvas.setTextColor(COLOR_SUCCESS);
-        String url = "http://" + FileServer::getIP();
+        String ip = FileServer::getIP();
+        ip.toUpperCase();
+        String url = "HTTP://" + ip;
         canvas.drawString(url, DISPLAY_W / 2, 45);
         
         canvas.setTextColor(COLOR_FG);
-        canvas.drawString("or http://porkchop.local", DISPLAY_W / 2, 60);
+        canvas.drawString("OR HTTP://PORKCHOP.LOCAL", DISPLAY_W / 2, 60);
     } else if (FileServer::isRunning()) {
         // Server running but WiFi lost
         canvas.drawString("LINK DEAD.", DISPLAY_W / 2, 35);

@@ -10,7 +10,7 @@
 #include "../ml/features.h"
 
 // Maximum clients to track per network
-#define MAX_CLIENTS_PER_NETWORK 8
+#define MAX_CLIENTS_PER_NETWORK 20  // Dense environment support (conferences, airports)
 
 struct DetectedClient {
     uint8_t mac[6];
@@ -36,11 +36,15 @@ struct DetectedNetwork {
     uint8_t clientCount;
 };
 
+// Frame storage for PCAP export - stores full 802.11 frame with headers
 struct EAPOLFrame {
-    uint8_t data[512];
-    uint16_t len;
-    uint8_t messageNum;  // 1-4
+    uint8_t data[512];       // EAPOL payload only (for hashcat 22000)
+    uint8_t fullFrame[300];  // Full 802.11 frame for PCAP (header + LLC + EAPOL)
+    uint16_t len;            // EAPOL payload length
+    uint16_t fullFrameLen;   // Full 802.11 frame length
+    uint8_t messageNum;      // 1-4
     uint32_t timestamp;
+    int8_t rssi;             // Signal strength for radiotap header
 };
 
 struct CapturedHandshake {
@@ -52,6 +56,7 @@ struct CapturedHandshake {
     uint32_t firstSeen;
     uint32_t lastSeen;
     bool saved;  // Already saved to SD
+    uint8_t saveAttempts;  // Number of save attempts (0-3, then give up)
     uint8_t* beaconData;   // Beacon frame for this AP
     uint16_t beaconLen;    // Beacon frame length
     
@@ -83,6 +88,7 @@ struct CapturedPMKID {
     uint8_t pmkid[16];
     uint32_t timestamp;
     bool saved;
+    uint8_t saveAttempts;  // Number of save attempts (0-3, then give up)
 };
 
 class OinkMode {
@@ -191,11 +197,13 @@ private:
     static void processBeacon(const uint8_t* payload, uint16_t len, int8_t rssi);
     static void processProbeResponse(const uint8_t* payload, uint16_t len, int8_t rssi);
     static void processDataFrame(const uint8_t* payload, uint16_t len, int8_t rssi);
-    static void processEAPOL(const uint8_t* payload, uint16_t len, const uint8_t* srcMac, const uint8_t* dstMac);
+    static void processEAPOL(const uint8_t* payload, uint16_t len, const uint8_t* srcMac, const uint8_t* dstMac,
+                             const uint8_t* fullFrame, uint16_t fullFrameLen, int8_t rssi);
     
     static void sendDeauthFrame(const uint8_t* bssid, const uint8_t* station, uint8_t reason);
     static void sendDeauthBurst(const uint8_t* bssid, const uint8_t* station, uint8_t count);
     static void sendDisassocFrame(const uint8_t* bssid, const uint8_t* station, uint8_t reason);
+    static void sendAssociationRequest(const uint8_t* bssid, const char* ssid, uint8_t ssidLen);
     static void hopChannel();
     static void trackClient(const uint8_t* bssid, const uint8_t* clientMac, int8_t rssi);
     static bool detectPMF(const uint8_t* payload, uint16_t len);
