@@ -76,6 +76,17 @@ static const char* HOGWASH_PHRASES_HOOK[] = {
 };
 static const uint8_t HOGWASH_PHRASES_HOOK_COUNT = 5;
 
+// Phrases when mimicking a new SSID (the %s gets replaced with SSID name)
+static const char* HOGWASH_PHRASES_PROBE[] = {
+    "I am %s now",
+    "yes I'm %s",
+    "looking for %s?",
+    "*becomes %s*",
+    "%s? never heard of it",
+    "totally %s rn"
+};
+static const uint8_t HOGWASH_PHRASES_PROBE_COUNT = 6;
+
 void HogwashMode::init() {
     running = false;
     confirmed = false;
@@ -344,6 +355,18 @@ void HogwashMode::updateSoftAPSSID() {
     // Change soft AP SSID (requires restart of AP)
     WiFi.softAPdisconnect(false);
     WiFi.softAP(currentSSID, nullptr, channel, 0, 4);
+    
+    // Set pig phrase about the new SSID (truncate SSID if needed for display)
+    char phrase[64];
+    char shortSSID[16];
+    strncpy(shortSSID, currentSSID, 12);
+    shortSSID[12] = '\0';
+    if (strlen(currentSSID) > 12) strcat(shortSSID, "...");
+    
+    snprintf(phrase, sizeof(phrase), 
+             HOGWASH_PHRASES_PROBE[random(0, HOGWASH_PHRASES_PROBE_COUNT)], 
+             shortSSID);
+    Mood::setStatusMessage(phrase);
     
     Serial.printf("[HOGWASH] SSID changed to: %s\n", currentSSID);
 }
