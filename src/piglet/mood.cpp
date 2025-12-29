@@ -1852,3 +1852,63 @@ void Mood::onPiggyBluesUpdate(const char* vendor, int8_t rssi, uint8_t targetCou
     lastPhraseChange = millis();
 }
 
+// HOGWASH (Karma AP) phrases - devious pig luring victims
+const char* PHRASES_HOGWASH_IDLE[] = {
+    "come to papa...",
+    "here piggy piggy...",
+    "the wifi is free...",
+    "trust me bro",
+    "totally legit network",
+    "no password needed",
+    "open sesame bruv",
+    "take the bait...",
+    "free internet innit"
+};
+static const int PHRASES_HOGWASH_IDLE_COUNT = 9;
+
+const char* PHRASES_HOGWASH_HOOKED[] = {
+    "GOTCHA!",
+    "welcome to the farm",
+    "another one",
+    "yoink",
+    "GET OVER HERE",
+    "hook line sinker",
+    "ez catch",
+    "trap sprung",
+    "victim acquired"
+};
+static const int PHRASES_HOGWASH_HOOKED_COUNT = 9;
+
+const char* PHRASES_HOGWASH_STATUS[] = {
+    "%d hooked [%lu probes]",
+    "karma: %d souls captured",
+    "%d victims [%lu sniffed]",
+    "lured %d so far...",
+    "%d devices fooled"
+};
+static const int PHRASES_HOGWASH_STATUS_COUNT = 5;
+
+void Mood::onHogwashUpdate(const char* ssid, uint8_t hookedCount, uint32_t probeCount) {
+    lastActivityTime = millis();
+    
+    char buf[48];
+    
+    if (hookedCount > 0) {
+        // Status with hook count
+        int idx = random(0, PHRASES_HOGWASH_STATUS_COUNT);
+        snprintf(buf, sizeof(buf), PHRASES_HOGWASH_STATUS[idx], hookedCount, probeCount);
+        currentPhrase = buf;
+        happiness = min(100, happiness + 2);  // Nice boost for hooks
+        applyMomentumBoost(10);
+    } else if (ssid != nullptr && ssid[0] != '\0') {
+        // Idle with SSID broadcast
+        int idx = random(0, PHRASES_HOGWASH_IDLE_COUNT);
+        currentPhrase = PHRASES_HOGWASH_IDLE[idx];
+    } else {
+        // Pure idle
+        int idx = random(0, PHRASES_HOGWASH_IDLE_COUNT);
+        currentPhrase = PHRASES_HOGWASH_IDLE[idx];
+    }
+    lastPhraseChange = millis();
+}
+
