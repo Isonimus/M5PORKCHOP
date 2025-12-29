@@ -539,11 +539,15 @@ void HogwashMode::probeCallback(void* buf, wifi_promiscuous_pkt_type_t type) {
                     }
                     
                     // Update current SSID immediately for fresh probes
-                    strncpy(currentSSID, ssid, 32);
-                    currentSSID[32] = '\0';
-                    updateSoftAPSSID();
-                    
-                    Serial.printf("[HOGWASH] New probe queued: %s\n", ssid);
+                    // BUT only if no clients connected (changing SSID disconnects them)
+                    if (hookedCount == 0) {
+                        strncpy(currentSSID, ssid, 32);
+                        currentSSID[32] = '\0';
+                        updateSoftAPSSID();
+                        Serial.printf("[HOGWASH] New probe, switching to: %s\n", ssid);
+                    } else {
+                        Serial.printf("[HOGWASH] New probe queued (clients connected): %s\n", ssid);
+                    }
                 }
             }
             break;
