@@ -185,6 +185,8 @@ bool Config::load() {
         wifiConfig.wpaSecKey = doc["wifi"]["wpaSecKey"] | "";
         wifiConfig.wigleApiName = doc["wifi"]["wigleApiName"] | "";
         wifiConfig.wigleApiToken = doc["wifi"]["wigleApiToken"] | "";
+        wifiConfig.hogwashCaptivePortal = doc["wifi"]["hogwashCaptivePortal"] | false;
+        wifiConfig.hogwashSSIDCycleMs = doc["wifi"]["hogwashSSIDCycleMs"] | 5000;
     }
     
     // BLE config (PIGGY BLUES)
@@ -298,6 +300,8 @@ bool Config::save() {
     doc["wifi"]["wpaSecKey"] = wifiConfig.wpaSecKey;
     doc["wifi"]["wigleApiName"] = wifiConfig.wigleApiName;
     doc["wifi"]["wigleApiToken"] = wifiConfig.wigleApiToken;
+    doc["wifi"]["hogwashCaptivePortal"] = wifiConfig.hogwashCaptivePortal;
+    doc["wifi"]["hogwashSSIDCycleMs"] = wifiConfig.hogwashSSIDCycleMs;
     
     // BLE config (PIGGY BLUES)
     doc["ble"]["burstInterval"] = bleConfig.burstInterval;
