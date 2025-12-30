@@ -1452,6 +1452,11 @@ void Mood::updateAvatarState() {
             Avatar::setState(AvatarState::ANGRY);
             break;
             
+        case PorkchopMode::HOGWASH_MODE:
+            // Karma AP mode: ALWAYS show DEVIOUS (sneaky fishing face)
+            Avatar::setState(AvatarState::DEVIOUS);
+            break;
+            
         case PorkchopMode::WARHOG_MODE:
             // Wardriving: relaxed hunting, biased toward happy
             if (effectiveMood > MOOD_PEEK_HIGH_THRESHOLD) {
@@ -1894,8 +1899,8 @@ void Mood::onHogwashUpdate(const char* ssid, uint8_t hookedCount, uint32_t probe
     static char buf[48];
     
     if (hookedCount > 0) {
-        // Mix status phrases with idle/flavor phrases (70% status, 30% flavor)
-        if (random(0, 10) < 7) {
+        // Mix status phrases with idle/flavor phrases (60% status, 40% flavor)
+        if (random(0, 10) < 6) {
             // Status with hook count
             int idx = random(0, PHRASES_HOGWASH_STATUS_COUNT);
             snprintf(buf, sizeof(buf), PHRASES_HOGWASH_STATUS[idx], hookedCount, probeCount);
@@ -1906,7 +1911,7 @@ void Mood::onHogwashUpdate(const char* ssid, uint8_t hookedCount, uint32_t probe
             currentPhrase = PHRASES_HOGWASH_IDLE[idx];
         }
         happiness = min(100, happiness + 2);  // Nice boost for hooks
-        applyMomentumBoost(10);
+        // Note: No applyMomentumBoost() here - we want to maintain DEVIOUS state
     } else if (ssid != nullptr && ssid[0] != '\0') {
         // Idle with SSID broadcast
         int idx = random(0, PHRASES_HOGWASH_IDLE_COUNT);
