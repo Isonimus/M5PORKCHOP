@@ -96,6 +96,7 @@ private:
     // Captive portal
     static bool portalEnabled;
     static bool portalRunning;
+    static bool evilTwinMode;      // Fixed SSID mode (no karma cycling)
     static String portalHTML;
     static void startCaptivePortal();
     static void stopCaptivePortal();

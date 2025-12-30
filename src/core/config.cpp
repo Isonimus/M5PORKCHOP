@@ -187,6 +187,9 @@ bool Config::load() {
         wifiConfig.wigleApiToken = doc["wifi"]["wigleApiToken"] | "";
         wifiConfig.hogwashCaptivePortal = doc["wifi"]["hogwashCaptivePortal"] | false;
         wifiConfig.hogwashSSIDCycleMs = doc["wifi"]["hogwashSSIDCycleMs"] | 5000;
+        const char* fixedSSID = doc["wifi"]["hogwashFixedSSID"] | "";
+        strncpy(wifiConfig.hogwashFixedSSID, fixedSSID, 32);
+        wifiConfig.hogwashFixedSSID[32] = '\0';
     }
     
     // BLE config (PIGGY BLUES)
@@ -302,6 +305,7 @@ bool Config::save() {
     doc["wifi"]["wigleApiToken"] = wifiConfig.wigleApiToken;
     doc["wifi"]["hogwashCaptivePortal"] = wifiConfig.hogwashCaptivePortal;
     doc["wifi"]["hogwashSSIDCycleMs"] = wifiConfig.hogwashSSIDCycleMs;
+    doc["wifi"]["hogwashFixedSSID"] = wifiConfig.hogwashFixedSSID;
     
     // BLE config (PIGGY BLUES)
     doc["ble"]["burstInterval"] = bleConfig.burstInterval;

@@ -316,6 +316,14 @@ void SettingsMenu::loadFromConfig() {
         1, 30, 1, "s", "",
         "HOGWASH SSID switch time"
     });
+    
+    // Fixed SSID (Evil Twin mode - if set, disables karma cycling)
+    items.push_back({
+        "Fixed SSID",
+        SettingType::TEXT,
+        0, 0, 32, 0, "", Config::wifi().hogwashFixedSSID,
+        "Set for Evil Twin (empty=karma)"
+    });
     // No Save & Exit button - ESC/backtick auto-saves
 }
 
@@ -387,6 +395,8 @@ void SettingsMenu::saveToConfig() {
     // HOGWASH settings
     w.hogwashCaptivePortal = items[27].value == 1;
     w.hogwashSSIDCycleMs = items[28].value * 1000;  // Convert seconds to ms
+    strncpy(w.hogwashFixedSSID, items[29].textValue.c_str(), 32);
+    w.hogwashFixedSSID[32] = '\0';
     Config::setWiFi(w);
     
     // Save to file

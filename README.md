@@ -515,6 +515,18 @@
     settings:
         Karma Portal: OFF by default. enables captive portal (see below)
         SSID Cycle:   1-30 seconds (default 5s). how often to switch SSID
+        Fixed SSID:   empty by default. if set, enables Evil Twin mode
+
+    MODES:
+    
+        karma mode (default - Fixed SSID empty):
+            the pig listens for probe requests and becomes whatever network
+            devices are looking for. SSID cycles through captured probes.
+            
+        evil twin mode (Fixed SSID set):
+            the pig broadcasts a specific SSID you configure. no cycling,
+            no karma. useful for cloning a specific target network.
+            toast shows "EVIL TWIN" instead of "KARMA ACTIVE".
 
     CAPTIVE PORTAL (when Karma Portal: ON):
     

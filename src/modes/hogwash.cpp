@@ -36,6 +36,7 @@ bool HogwashMode::running = false;
 bool HogwashMode::confirmed = false;
 bool HogwashMode::portalEnabled = false;
 bool HogwashMode::portalRunning = false;
+bool HogwashMode::evilTwinMode = false;  // Fixed SSID mode (no karma cycling)
 String HogwashMode::portalHTML = "";
 SSIDEntry HogwashMode::ssidQueue[HOGWASH_SSID_QUEUE_SIZE] = {0};
 uint8_t HogwashMode::ssidQueueHead = 0;
@@ -131,11 +132,24 @@ void HogwashMode::start() {
     // Load SSID cycle interval from config
     ssidCycleIntervalMs = Config::wifi().hogwashSSIDCycleMs;
     
-    // Start probe monitoring
+    // Check if fixed SSID is configured (Evil Twin mode)
+    const char* fixedSSID = Config::wifi().hogwashFixedSSID;
+    evilTwinMode = (fixedSSID[0] != '\0');
+    
+    // Start probe monitoring (still useful for XP even in Evil Twin mode)
     startProbeMonitor();
     
-    // Initial SSID (will be updated when probes arrive)
-    strcpy(currentSSID, "FreeWiFi");
+    // Set initial SSID
+    if (evilTwinMode) {
+        // Evil Twin mode: use configured SSID
+        strncpy(currentSSID, fixedSSID, 32);
+        currentSSID[32] = '\0';
+        Serial.printf("[HOGWASH] Evil Twin mode: %s\n", currentSSID);
+    } else {
+        // Karma mode: start with generic SSID, will update from probes
+        strcpy(currentSSID, "FreeWiFi");
+        Serial.println("[HOGWASH] Karma mode: cycling probed SSIDs");
+    }
     
     // Start soft AP
     startSoftAP();
@@ -154,9 +168,16 @@ void HogwashMode::start() {
     
     // Set pig mood - DEVIOUS for the scheming karma AP pig
     Avatar::setState(AvatarState::DEVIOUS);
-    Display::showToast(portalEnabled ? "KARMA+PORTAL" : "KARMA ACTIVE");
     
-    SDLog::log("HOG", "HOGWASH mode started on channel %d (portal: %s)", channel, portalEnabled ? "ON" : "OFF");
+    // Show appropriate toast based on mode
+    if (evilTwinMode) {
+        Display::showToast(portalEnabled ? "EVIL TWIN+PORTAL" : "EVIL TWIN");
+    } else {
+        Display::showToast(portalEnabled ? "KARMA+PORTAL" : "KARMA ACTIVE");
+    }
+    
+    SDLog::log("HOG", "HOGWASH started: %s mode, channel %d, portal: %s", 
+               evilTwinMode ? "Evil Twin" : "Karma", channel, portalEnabled ? "ON" : "OFF");
     Serial.println("[HOGWASH] Mode started");
 }
 
@@ -206,10 +227,11 @@ void HogwashMode::update() {
     }
     
     // Cycle SSID periodically (but NOT while clients are CURRENTLY connected)
+    // Skip cycling entirely in Evil Twin mode (fixed SSID)
     // Changing SSID disconnects all clients, so pause rotation to keep hooks alive
     uint8_t connectedStations = WiFi.softAPgetStationNum();
     
-    if (connectedStations == 0 && now - lastSSIDChange > ssidCycleIntervalMs) {
+    if (!evilTwinMode && connectedStations == 0 && now - lastSSIDChange > ssidCycleIntervalMs) {
         cycleToNextSSID();
         lastSSIDChange = now;
     }
@@ -572,15 +594,19 @@ void HogwashMode::probeCallback(void* buf, wifi_promiscuous_pkt_type_t type) {
                         pendingNewSSID = true;
                     }
                     
-                    // Switch SSID only if no clients connected (would disconnect them)
-                    uint8_t numStations = WiFi.softAPgetStationNum();
-                    
-                    if (numStations == 0) {
-                        strncpy(currentSSID, ssid, 32);
-                        currentSSID[32] = '\0';
-                        updateSoftAPSSID();
+                    // Switch SSID only if:
+                    // - NOT in Evil Twin mode (fixed SSID)
+                    // - No clients connected (would disconnect them)
+                    if (!evilTwinMode) {
+                        uint8_t numStations = WiFi.softAPgetStationNum();
+                        
+                        if (numStations == 0) {
+                            strncpy(currentSSID, ssid, 32);
+                            currentSSID[32] = '\0';
+                            updateSoftAPSSID();
+                        }
                     }
-                    // Note: New probes still queue for XP even when clients are connected
+                    // Note: New probes still queue for XP even in Evil Twin mode
                 }
             }
             break;
