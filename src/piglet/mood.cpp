@@ -1891,13 +1891,20 @@ static const int PHRASES_HOGWASH_STATUS_COUNT = 5;
 void Mood::onHogwashUpdate(const char* ssid, uint8_t hookedCount, uint32_t probeCount) {
     lastActivityTime = millis();
     
-    char buf[48];
+    static char buf[48];
     
     if (hookedCount > 0) {
-        // Status with hook count
-        int idx = random(0, PHRASES_HOGWASH_STATUS_COUNT);
-        snprintf(buf, sizeof(buf), PHRASES_HOGWASH_STATUS[idx], hookedCount, probeCount);
-        currentPhrase = buf;
+        // Mix status phrases with idle/flavor phrases (70% status, 30% flavor)
+        if (random(0, 10) < 7) {
+            // Status with hook count
+            int idx = random(0, PHRASES_HOGWASH_STATUS_COUNT);
+            snprintf(buf, sizeof(buf), PHRASES_HOGWASH_STATUS[idx], hookedCount, probeCount);
+            currentPhrase = buf;
+        } else {
+            // Flavor phrase
+            int idx = random(0, PHRASES_HOGWASH_IDLE_COUNT);
+            currentPhrase = PHRASES_HOGWASH_IDLE[idx];
+        }
         happiness = min(100, happiness + 2);  // Nice boost for hooks
         applyMomentumBoost(10);
     } else if (ssid != nullptr && ssid[0] != '\0') {
